@@ -1,6 +1,7 @@
 package com.termforge
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -12,13 +13,18 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.navigation.compose.rememberNavController
 import com.termforge.data.prefs.AppPreferences
+import com.termforge.nav.Routes
 import com.termforge.nav.TermForgeNavGraph
+import com.termforge.session.AttentionNotifier
+import com.termforge.session.SessionManager
 import com.termforge.terminal.FontSizeController
 import com.termforge.ui.theme.TermForgeTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -33,17 +39,23 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var fontSizeController: FontSizeController
     @Inject lateinit var appPreferences: AppPreferences
+    @Inject lateinit var sessionManager: SessionManager
 
     // Registered before STARTED (field init) so it's ready to launch from onCreate. Result ignored:
     // a denial simply means notifications stay silent until the user grants it in system settings.
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    // Set when an attention notification is tapped (cold start via onCreate's intent, or onNewIntent
+    // while alive). The NavGraph below observes it and routes to that session.
+    private val pendingSessionId = mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         maybeRequestNotificationPermission()
+        pendingSessionId.value = intent.getStringExtra(AttentionNotifier.EXTRA_SESSION_ID)
 
         setContent {
             val settings by appPreferences.settings.collectAsState(initial = com.termforge.data.prefs.AppSettings())
@@ -55,9 +67,29 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val navController = rememberNavController()
                     TermForgeNavGraph(navController)
+                    val pending = pendingSessionId.value
+                    LaunchedEffect(pending) {
+                        if (pending != null) {
+                            // If the session is still live, open it; if the process was killed and it's
+                            // gone, fall back to the sessions list rather than a stuck "Connecting…".
+                            val route = if (sessionManager.get(pending) != null) {
+                                Routes.Terminal.build(pending)
+                            } else {
+                                Routes.ACTIVE_SESSIONS
+                            }
+                            navController.navigate(route) { launchSingleTop = true }
+                            pendingSessionId.value = null
+                        }
+                    }
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getStringExtra(AttentionNotifier.EXTRA_SESSION_ID)?.let { pendingSessionId.value = it }
     }
 
     /**

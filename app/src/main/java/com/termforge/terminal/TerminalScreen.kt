@@ -84,6 +84,8 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.navigation.NavHostController
 import com.termforge.data.prefs.BellMode
 import com.termforge.keybar.KeyBarRow
@@ -151,6 +153,13 @@ fun TerminalScreen(navController: NavHostController, viewModel: TerminalViewMode
         viewModel.fontSizeController.volumeKeysEnabled = settings.volumeKeysResizeFont
         onDispose { viewModel.fontSizeController.terminalForegrounded = false }
     }
+
+    // Suppress THIS session's attention pings only while it's actually on-screen (RESUMED). Lifecycle-
+    // scoped, not composition-scoped, so a backgrounded app still gets notified. ON_PAUSE fires when
+    // leaving the screen or backgrounding; markHidden is guarded so switching tabs can't clear the
+    // incoming session's visibility.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.setVisible(true) }
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { viewModel.setVisible(false) }
     LaunchedEffect(Unit) { viewModel.prompts.collect { activePrompt = it } }
 
     // Bell flash is driven by an ever-incrementing token (not a boolean) so rapid bells — e.g.

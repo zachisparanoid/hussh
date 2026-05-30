@@ -92,6 +92,11 @@ class TerminalViewModel @Inject constructor(
 
     fun disconnectId(id: String) = sessionManager.disconnect(id)
 
+    /** Tracks whether this session is the one the user is actively viewing (suppresses its pings). */
+    fun setVisible(visible: Boolean) {
+        if (visible) sessionManager.markVisible(sessionId) else sessionManager.markHidden(sessionId)
+    }
+
     // --- Push-to-talk voice (streams mic audio to the remote Claude Code over a second SSH channel) ---
     val voiceController = com.termforge.voice.VoiceController(viewModelScope)
     private val voiceTriggerKey = byteArrayOf(0x20) // Space = the /voice (tap mode) key
