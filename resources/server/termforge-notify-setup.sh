@@ -2,20 +2,24 @@
 #
 # TermForge — agent attention setup
 # ---------------------------------
-# Installs a Claude Code hook that emits a tiny OSC 777 marker whenever Claude finishes a turn
-# (Stop) or needs your input (Notification). TermForge watches each session's SSH stream for that
-# marker, strips it (you never see it), and pops a "Claude needs you" notification on your phone.
+# Installs the per-instance attention hook + tmux router so TermForge can see every Claude Code
+# instance on this machine (including detached tmux panes) and route Approve/Deny/voice to the right
+# one. Run this ONCE on the machine where Claude Code runs, then enable "Claude attention
+# notifications" in TermForge → Settings.
 #
-# Run this ONCE on the machine where Claude Code runs, then enable
-# "Claude attention notifications" in TermForge → Settings.
+# Installs:
+#   ~/.claude/hooks/tf-attn.sh     (Stop + Notification hook → writes the event feed + OSC marker)
+#   ~/.termforge/tf-route.sh       (tmux router the phone calls: list/focus/send/capture)
+#   ~/.termforge/attention.jsonl   (the event feed, created on first hook fire)
 #
-# Safe to re-run: it's idempotent and won't duplicate or clobber your other hooks.
-#
-# Remove it later with:  termforge-notify-setup.sh --uninstall
+# Safe to re-run (idempotent). Remove with:  termforge-notify-setup.sh --uninstall
 set -euo pipefail
 
+SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK_DIR="$HOME/.claude/hooks"
 HOOK="$HOOK_DIR/tf-attn.sh"
+TF_DIR="$HOME/.termforge"
+ROUTE="$TF_DIR/tf-route.sh"
 SETTINGS="$HOME/.claude/settings.json"
 
 require_jq() {
@@ -27,7 +31,7 @@ require_jq() {
 
 uninstall() {
     require_jq
-    rm -f "$HOOK"
+    rm -f "$HOOK" "$ROUTE"
     if [ -f "$SETTINGS" ]; then
         local tmp
         tmp="$(mktemp)"
@@ -38,28 +42,20 @@ uninstall() {
             else . end
         ' "$SETTINGS" >"$tmp" && mv "$tmp" "$SETTINGS"
     fi
-    echo "Removed the TermForge attention hook."
+    echo "Removed the TermForge attention hook + router. (Left ~/.termforge/attention.jsonl in place.)"
     exit 0
 }
 
 [ "${1:-}" = "--uninstall" ] && uninstall
 
 require_jq
-mkdir -p "$HOOK_DIR"
 
-# Write the hook. The quoted heredoc keeps everything literal, so the file ends up containing the
-# JSON-escape TEXT  …  (backslash-u, six chars each) — NOT raw control bytes. `printf %s`
-# emits the argument verbatim, so the hook prints valid JSON; Claude Code then unescapes  → ESC
-# and  → BEL when it writes the bytes to the PTY:
-#     ESC ] 777 ; notify ; TermForge ; tf-attn BEL
-# The unique "tf-attn" tag is what TermForge's AttentionMarkerScanner keys on. suppressOutput hides
-# the hook's stdout from the transcript; terminalSequence is still written to the terminal.
-cat >"$HOOK" <<'EOF'
-#!/usr/bin/env bash
-# TermForge agent-attention marker. Installed by termforge-notify-setup.sh.
-printf '%b' '{"suppressOutput": true, "terminalSequence": "\\u001b]777;notify;TermForge;tf-attn\\u0007"}'
-EOF
-chmod +x "$HOOK"
+# Install the hook + router from the files shipped alongside this script.
+[ -f "$SRC_DIR/tf-attn.sh" ] || { echo "Missing $SRC_DIR/tf-attn.sh — keep the resources/server files together." >&2; exit 1; }
+[ -f "$SRC_DIR/tf-route.sh" ] || { echo "Missing $SRC_DIR/tf-route.sh — keep the resources/server files together." >&2; exit 1; }
+install -D -m 0755 "$SRC_DIR/tf-attn.sh" "$HOOK"
+install -D -m 0755 "$SRC_DIR/tf-route.sh" "$ROUTE"
+mkdir -p "$TF_DIR"
 
 # Register the hook for both Stop (turn complete) and Notification (needs input), appending without
 # duplicating and preserving any other hooks you already have.
@@ -75,10 +71,10 @@ jq --arg cmd "$HOOK" '
        else .hooks.Notification += [{"matcher": "", "hooks": [{"type": "command", "command": $cmd}]}] end)
 ' "$SETTINGS" >"$tmp" && mv "$tmp" "$SETTINGS"
 
-echo "Installed the TermForge attention hook → $HOOK"
+echo "Installed:"
+echo "  hook   → $HOOK"
+echo "  router → $ROUTE"
 echo "Registered Stop + Notification hooks in $SETTINGS"
 echo
-echo "Verify it emits valid JSON:"
-echo "    bash \"$HOOK\" | jq ."
-echo
+echo "Verify the hook emits valid JSON:  bash \"$HOOK\" </dev/null | jq ."
 echo "Then enable 'Claude attention notifications' in TermForge → Settings, connect, and run claude."
