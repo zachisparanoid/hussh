@@ -110,9 +110,12 @@ class TerminalConnection(
         val inJob = scope.launch {
             t.inbound.collect { bytes ->
                 if (attentionEnabled()) {
+                    // Strip the inline marker so it never renders. Notifications now come from the
+                    // per-instance feed (AgentInstanceRegistry), which also covers detached panes —
+                    // so we deliberately do NOT notify here, to avoid double-firing for the foreground
+                    // instance. r.detected is intentionally unused.
                     val r = attentionScanner.scan(bytes)
                     terminalSession.onNetworkInput(r.cleaned, 0, r.cleaned.size)
-                    if (r.detected) onAttention(sessionId)
                 } else {
                     terminalSession.onNetworkInput(bytes, 0, bytes.size)
                 }
@@ -165,6 +168,9 @@ class TerminalConnection(
 
     /** Open an auxiliary SSH channel (e.g. to stream microphone audio). Null if not an SSH session. */
     suspend fun openAuxStream(command: String) = transport?.openAuxStream(command)
+
+    /** Open an exec channel (agent feed `tail -F` / routing commands). Null if not an SSH session. */
+    suspend fun openExec(command: String) = transport?.openExec(command)
 
     fun disconnect() {
         _status.value = SessionStatus.DISCONNECTED
