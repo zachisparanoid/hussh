@@ -10,6 +10,7 @@ object Routes {
     const val SNIPPETS = "snippets"
     const val SETTINGS = "settings"
     const val ACTIVE_SESSIONS = "active_sessions"
+    const val AGENTS = "agents"
 
     object HostEdit {
         const val ARG_ID = "id"

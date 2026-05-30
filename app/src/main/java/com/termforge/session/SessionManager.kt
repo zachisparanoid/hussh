@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
+import com.termforge.agent.AgentInstance
+import com.termforge.agent.AgentInstanceRegistry
+import com.termforge.agent.AgentRouter
 import com.termforge.data.db.ForwardType
 import com.termforge.data.db.entities.HostEntity
 import com.termforge.data.prefs.AppPreferences
@@ -75,6 +78,12 @@ class SessionManager @Inject constructor(
     @Volatile var visibleSessionId: String? = null
         private set
     private val lastAttentionAtMs = ConcurrentHashMap<String, Long>()
+
+    /** One feed-follower per connection; discovers Claude instances and fires per-instance attention. */
+    private val registries = ConcurrentHashMap<String, AgentInstanceRegistry>()
+    private val _instances = MutableStateFlow<List<AgentInstance>>(emptyList())
+    /** Every live agent instance across all connected hosts (the Agents dashboard / watch source). */
+    val instances = _instances.asStateFlow()
 
     init {
         managerScope.launch {
@@ -162,6 +171,7 @@ class SessionManager @Inject constructor(
         )
         _sessions.update { it + connection }
         connection.start()
+        if (agentAttentionEnabled) startRegistry(sessionId, hostId, connection)
         hostRepo.touchLastConnected(hostId, System.currentTimeMillis())
         startService()
     }
@@ -204,6 +214,8 @@ class SessionManager @Inject constructor(
         _sessions.value.firstOrNull { it.sessionId == sessionId }?.disconnect()
         _sessions.update { it.filterNot { c -> c.sessionId == sessionId } }
         attentionNotifier.cancel(sessionId)
+        registries.remove(sessionId)?.stop()
+        recomputeInstances()
         if (_sessions.value.isEmpty()) stopService()
     }
 
@@ -221,6 +233,67 @@ class SessionManager @Inject constructor(
         attentionNotifier.notifyAttention(sessionId, conn.title)
     }
 
+    // --- Multi-instance (agent feed) wiring ---
+
+    private fun startRegistry(sessionId: String, hostId: Long, connection: TerminalConnection) {
+        if (registries.containsKey(sessionId)) return
+        val reg = AgentInstanceRegistry(
+            hostId = hostId,
+            scope = managerScope,
+            nowMs = { SystemClock.elapsedRealtime() },
+            openExec = { cmd -> connection.openExec(cmd) },
+            onAttention = ::onInstanceAttention,
+        )
+        registries[sessionId] = reg
+        managerScope.launch { reg.instances.collect { recomputeInstances() } }
+        reg.start()
+    }
+
+    private fun recomputeInstances() {
+        _instances.value = registries.values
+            .flatMap { it.instances.value.values }
+            .sortedBy { (it.sessionName ?: "") + "/" + (it.windowName ?: "") }
+    }
+
+    /** A specific Claude instance saw a needs-you transition. Debounced per instance. */
+    private fun onInstanceAttention(inst: AgentInstance) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - (lastAttentionAtMs[inst.key] ?: 0L) < ATTENTION_DEBOUNCE_MS) return
+        lastAttentionAtMs[inst.key] = now
+        attentionNotifier.notifyInstance(inst)
+    }
+
+    fun instanceByKey(key: String): AgentInstance? = _instances.value.firstOrNull { it.key == key }
+
+    private fun connectionForHost(hostId: Long): TerminalConnection? =
+        _sessions.value.firstOrNull { it.hostId == hostId }
+
+    /** sessionId of a live connection to that instance's host, for navigating the terminal to it. */
+    fun sessionIdForHost(hostId: Long): String? = connectionForHost(hostId)?.sessionId
+
+    private fun routerForHost(hostId: Long): AgentRouter? =
+        connectionForHost(hostId)?.let { c -> AgentRouter { cmd -> c.openExec(cmd) } }
+
+    fun focusInstance(inst: AgentInstance) {
+        managerScope.launch { runCatching { routerForHost(inst.hostId)?.focus(inst) } }
+    }
+
+    fun routeApprove(inst: AgentInstance) {
+        managerScope.launch { runCatching { routerForHost(inst.hostId)?.approve(inst) }; attentionNotifier.cancelInstance(inst) }
+    }
+
+    fun routeDeny(inst: AgentInstance) {
+        managerScope.launch { runCatching { routerForHost(inst.hostId)?.deny(inst) }; attentionNotifier.cancelInstance(inst) }
+    }
+
+    fun routeContinue(inst: AgentInstance) {
+        managerScope.launch { runCatching { routerForHost(inst.hostId)?.cont(inst) } }
+    }
+
+    fun routeText(inst: AgentInstance, text: String) {
+        managerScope.launch { runCatching { routerForHost(inst.hostId)?.sendText(inst, text) } }
+    }
+
     /**
      * Called by a [TerminalConnection] when it ends on its own (clean `exit`, or a drop with no
      * reconnect). Prunes it so the active-sessions list/count stays accurate. Idempotent.
@@ -229,6 +302,8 @@ class SessionManager @Inject constructor(
         if (_sessions.value.none { it.sessionId == sessionId }) return
         _sessions.update { it.filterNot { c -> c.sessionId == sessionId } }
         attentionNotifier.cancel(sessionId)
+        registries.remove(sessionId)?.stop()
+        recomputeInstances()
         if (_sessions.value.isEmpty()) stopService()
     }
 

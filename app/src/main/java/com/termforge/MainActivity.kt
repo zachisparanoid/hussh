@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
     // Set when an attention notification is tapped (cold start via onCreate's intent, or onNewIntent
     // while alive). The NavGraph below observes it and routes to that session.
     private val pendingSessionId = mutableStateOf<String?>(null)
+    private val pendingInstanceKey = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -56,6 +57,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         maybeRequestNotificationPermission()
         pendingSessionId.value = intent.getStringExtra(AttentionNotifier.EXTRA_SESSION_ID)
+        pendingInstanceKey.value = intent.getStringExtra(AttentionNotifier.EXTRA_INSTANCE_KEY)
 
         setContent {
             val settings by appPreferences.settings.collectAsState(initial = com.termforge.data.prefs.AppSettings())
@@ -81,6 +83,21 @@ class MainActivity : ComponentActivity() {
                             pendingSessionId.value = null
                         }
                     }
+                    val pendingInst = pendingInstanceKey.value
+                    LaunchedEffect(pendingInst) {
+                        if (pendingInst != null) {
+                            val inst = sessionManager.instanceByKey(pendingInst)
+                            if (inst != null) {
+                                sessionManager.focusInstance(inst) // jump the host's tmux client to it
+                                val sid = sessionManager.sessionIdForHost(inst.hostId)
+                                val route = sid?.let { Routes.Terminal.build(it) } ?: Routes.AGENTS
+                                navController.navigate(route) { launchSingleTop = true }
+                            } else {
+                                navController.navigate(Routes.AGENTS) { launchSingleTop = true }
+                            }
+                            pendingInstanceKey.value = null
+                        }
+                    }
                 }
             }
         }
@@ -90,6 +107,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         intent.getStringExtra(AttentionNotifier.EXTRA_SESSION_ID)?.let { pendingSessionId.value = it }
+        intent.getStringExtra(AttentionNotifier.EXTRA_INSTANCE_KEY)?.let { pendingInstanceKey.value = it }
     }
 
     /**

@@ -52,6 +52,11 @@
             android:exported="false"
             android:foregroundServiceType="dataSync|connectedDevice" />
 
+        <!-- Approve/Deny actions from agent-attention notifications (also surfaced on a Wear watch). -->
+        <receiver
+            android:name=".session.AgentActionReceiver"
+            android:exported="false" />
+
         <!-- For sharing exported public keys / session logs. -->
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -10,6 +10,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.termforge.MainActivity
 import com.termforge.R
+import com.termforge.agent.AgentInstance
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -58,6 +59,56 @@ class AttentionNotifier @Inject constructor(
         runCatching { NotificationManagerCompat.from(context).cancel(sessionId.hashCode()) }
     }
 
+    /** Per-instance "Claude needs you" naming the specific tmux session/pane; tap deep-links to it. */
+    fun notifyInstance(inst: AgentInstance) {
+        ensureChannel()
+        val id = inst.key.hashCode()
+        val tap = PendingIntent.getActivity(
+            context, id,
+            Intent(context, MainActivity::class.java).apply {
+                action = Intent.ACTION_VIEW
+                putExtra(EXTRA_INSTANCE_KEY, inst.key)
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+            },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setContentTitle("${inst.sessionName ?: "claude"} · ${phrase(inst.reason)}")
+            .setContentText(inst.cwd ?: "")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(tap)
+        if (inst.reason == "perm" && inst.routable) {
+            builder.addAction(0, "Approve", actionIntent(AgentActionReceiver.ACTION_APPROVE, inst.key, id * 31 + 1))
+            builder.addAction(0, "Deny", actionIntent(AgentActionReceiver.ACTION_DENY, inst.key, id * 31 + 2))
+        }
+        runCatching { NotificationManagerCompat.from(context).notify(id, builder.build()) }
+    }
+
+    fun cancelInstance(inst: AgentInstance) {
+        runCatching { NotificationManagerCompat.from(context).cancel(inst.key.hashCode()) }
+    }
+
+    private fun actionIntent(action: String, instanceKey: String, requestCode: Int): PendingIntent {
+        val intent = Intent(context, AgentActionReceiver::class.java).apply {
+            this.action = action
+            putExtra(EXTRA_INSTANCE_KEY, instanceKey)
+        }
+        return PendingIntent.getBroadcast(
+            context, requestCode, intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
+
+    private fun phrase(reason: String): String = when (reason) {
+        "perm" -> "needs permission"
+        "input" -> "waiting for input"
+        "done" -> "finished"
+        else -> "needs you"
+    }
+
     private fun ensureChannel() {
         if (channelReady || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
@@ -70,5 +121,6 @@ class AttentionNotifier @Inject constructor(
     companion object {
         const val CHANNEL_ID = "termforge_agent_attention"
         const val EXTRA_SESSION_ID = "com.termforge.extra.SESSION_ID"
+        const val EXTRA_INSTANCE_KEY = "com.termforge.extra.INSTANCE_KEY"
     }
 }
