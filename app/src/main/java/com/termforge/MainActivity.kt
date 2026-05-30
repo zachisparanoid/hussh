@@ -1,10 +1,14 @@
 package com.termforge
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -30,10 +34,16 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var fontSizeController: FontSizeController
     @Inject lateinit var appPreferences: AppPreferences
 
+    // Registered before STARTED (field init) so it's ready to launch from onCreate. Result ignored:
+    // a denial simply means notifications stay silent until the user grants it in system settings.
+    private val requestNotificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        maybeRequestNotificationPermission()
 
         setContent {
             val settings by appPreferences.settings.collectAsState(initial = com.termforge.data.prefs.AppSettings())
@@ -73,4 +83,13 @@ class MainActivity : ComponentActivity() {
     private fun shouldHandleVolume(keyCode: Int): Boolean =
         fontSizeController.terminalForegrounded && fontSizeController.volumeKeysEnabled &&
             (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)
+
+    /** On Android 13+, the foreground-service and agent-attention notifications need this runtime grant. */
+    private fun maybeRequestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 }
