@@ -3,6 +3,7 @@ package com.termforge.session
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.SystemClock
 import com.termforge.data.db.ForwardType
 import com.termforge.data.db.entities.HostEntity
 import com.termforge.data.prefs.AppPreferences
@@ -20,11 +21,16 @@ import com.termforge.transport.TerminalSize
 import com.termforge.transport.TransportCallbacks
 import com.termforge.transport.TransportFactory
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -55,11 +61,39 @@ class SessionManager @Inject constructor(
     private val appPrefs: AppPreferences,
     private val transportFactory: TransportFactory,
     private val promptHub: PromptHub,
+    private val attentionNotifier: AttentionNotifier,
 ) {
     private val _sessions = MutableStateFlow<List<TerminalConnection>>(emptyList())
     val sessions = _sessions.asStateFlow()
 
+    // --- Agent attention notifications ---
+    private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /** Hot-path snapshot of the opt-in flag, read once per inbound chunk; kept live by the collector
+     *  below instead of re-reading DataStore each time (which would stutter the terminal). */
+    @Volatile private var agentAttentionEnabled = false
+    /** The session the user is actively viewing (foreground); its own attention pings are suppressed. */
+    @Volatile var visibleSessionId: String? = null
+        private set
+    private val lastAttentionAtMs = ConcurrentHashMap<String, Long>()
+
+    init {
+        managerScope.launch {
+            appPrefs.settings.collect { agentAttentionEnabled = it.agentAttentionEnabled }
+        }
+    }
+
     fun get(sessionId: String): TerminalConnection? = _sessions.value.firstOrNull { it.sessionId == sessionId }
+
+    /** Called by the terminal screen on RESUME — suppresses pings for and clears any stale ping of it. */
+    fun markVisible(sessionId: String) {
+        visibleSessionId = sessionId
+        attentionNotifier.cancel(sessionId)
+    }
+
+    /** Called on PAUSE. Guarded so a screen leaving doesn't clear the incoming screen's visibility. */
+    fun markHidden(sessionId: String) {
+        if (visibleSessionId == sessionId) visibleSessionId = null
+    }
 
     fun newSessionId(): String = UUID.randomUUID().toString()
 
@@ -123,6 +157,8 @@ class SessionManager @Inject constructor(
             callbacks = callbacks,
             autoReconnect = host.autoReconnect,
             onTerminated = ::onConnectionTerminated,
+            onAttention = ::onConnectionAttention,
+            attentionEnabled = { agentAttentionEnabled },
         )
         _sessions.update { it + connection }
         connection.start()
@@ -167,7 +203,22 @@ class SessionManager @Inject constructor(
     fun disconnect(sessionId: String) {
         _sessions.value.firstOrNull { it.sessionId == sessionId }?.disconnect()
         _sessions.update { it.filterNot { c -> c.sessionId == sessionId } }
+        attentionNotifier.cancel(sessionId)
         if (_sessions.value.isEmpty()) stopService()
+    }
+
+    /**
+     * A [TerminalConnection] saw the agent-attention marker in its stream. Notify — unless the user is
+     * already looking at that session — debounced so the Stop + Notification hook double-fire (and rapid
+     * re-prompts) collapse into a single ping.
+     */
+    private fun onConnectionAttention(sessionId: String) {
+        if (visibleSessionId == sessionId) return
+        val conn = _sessions.value.firstOrNull { it.sessionId == sessionId } ?: return
+        val now = SystemClock.elapsedRealtime()
+        if (now - (lastAttentionAtMs[sessionId] ?: 0L) < ATTENTION_DEBOUNCE_MS) return
+        lastAttentionAtMs[sessionId] = now
+        attentionNotifier.notifyAttention(sessionId, conn.title)
     }
 
     /**
@@ -177,6 +228,7 @@ class SessionManager @Inject constructor(
     private fun onConnectionTerminated(sessionId: String) {
         if (_sessions.value.none { it.sessionId == sessionId }) return
         _sessions.update { it.filterNot { c -> c.sessionId == sessionId } }
+        attentionNotifier.cancel(sessionId)
         if (_sessions.value.isEmpty()) stopService()
     }
 
@@ -197,5 +249,9 @@ class SessionManager @Inject constructor(
 
     private fun stopService() {
         context.stopService(Intent(context, SessionService::class.java))
+    }
+
+    private companion object {
+        const val ATTENTION_DEBOUNCE_MS = 2000L
     }
 }

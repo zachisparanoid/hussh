@@ -43,12 +43,19 @@ class TerminalConnection(
     private val callbacks: TransportCallbacks,
     private val autoReconnect: Boolean,
     private val onTerminated: (String) -> Unit = {},
+    /** Invoked (with this sessionId) when the agent-attention marker is seen in the inbound stream. */
+    private val onAttention: (String) -> Unit = {},
+    /** Gates scanning: when false, inbound bytes skip the scanner entirely (zero hot-path cost). */
+    private val attentionEnabled: () -> Boolean = { false },
 ) {
     // Safety net: a transport-layer failure must degrade to a failed session, never crash the app.
     private val crashGuard = CoroutineExceptionHandler { _, _ -> _status.value = SessionStatus.FAILED }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + crashGuard)
     private val _status = MutableStateFlow(SessionStatus.CONNECTING)
     val status = _status.asStateFlow()
+
+    /** Strips the agent-attention marker from inbound bytes and flags when one is seen. */
+    private val attentionScanner = AttentionMarkerScanner()
 
     @Volatile var sessionClient: BaseTerminalSessionClient = BaseTerminalSessionClient()
         private set
@@ -101,7 +108,15 @@ class TerminalConnection(
         val closed = CompletableDeferred<TransportEvent.Disconnected>()
 
         val inJob = scope.launch {
-            t.inbound.collect { bytes -> terminalSession.onNetworkInput(bytes, 0, bytes.size) }
+            t.inbound.collect { bytes ->
+                if (attentionEnabled()) {
+                    val r = attentionScanner.scan(bytes)
+                    terminalSession.onNetworkInput(r.cleaned, 0, r.cleaned.size)
+                    if (r.detected) onAttention(sessionId)
+                } else {
+                    terminalSession.onNetworkInput(bytes, 0, bytes.size)
+                }
+            }
         }
         val evJob = scope.launch {
             t.events.collect { event ->
