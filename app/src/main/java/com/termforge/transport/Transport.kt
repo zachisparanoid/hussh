@@ -93,6 +93,19 @@ interface AuxStream {
 }
 
 /**
+ * A remote command run over the live SSH connection. [stdout] emits the command's output line by line
+ * (suitable for a long-lived `tail -F` or a one-shot command). [awaitExit] suspends until the remote
+ * command exits and returns its status. Safe to [close] because we never write to its stdin (the
+ * command and its args are the exec string), so there are no pending writes to fail on close — unlike
+ * the audio [AuxStream], which must be kept open for the connection's life.
+ */
+interface ExecChannel {
+    val stdout: Flow<String>
+    suspend fun awaitExit(): Int
+    fun close()
+}
+
+/**
  * Protocol-agnostic connection. One instance per live session. The session layer feeds [inbound]
  * bytes into the terminal emulator and routes terminal output to [send]. Implementations:
  * [com.termforge.transport.ssh.SshTransport], [com.termforge.transport.telnet.TelnetTransport],
@@ -130,6 +143,13 @@ interface Transport {
      * command's stdin. Only SSH supports this; other transports return null.
      */
     suspend fun openAuxStream(command: String): AuxStream? = null
+
+    /**
+     * Open an auxiliary channel running [command] on the remote host, exposing its stdout as lines and
+     * its exit status. Used for the agent feed (`tail -F`) and one-shot routing commands. Only SSH
+     * supports this; other transports return null.
+     */
+    suspend fun openExec(command: String): ExecChannel? = null
 }
 
 fun Transport.send(data: ByteArray) = send(data, 0, data.size)

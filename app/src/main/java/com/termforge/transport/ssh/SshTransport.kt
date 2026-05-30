@@ -17,6 +17,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -24,11 +26,15 @@ import kotlinx.coroutines.withContext
 import org.apache.sshd.client.SshClient
 import org.apache.sshd.client.auth.keyboard.UserInteraction
 import org.apache.sshd.client.channel.ChannelShell
+import org.apache.sshd.client.channel.ClientChannelEvent
 import org.apache.sshd.client.session.ClientSession
 import org.apache.sshd.common.config.keys.KeyUtils
 import org.apache.sshd.core.CoreModuleProperties
+import java.io.BufferedReader
+import java.io.InputStreamReader
 import java.io.OutputStream
 import java.time.Duration
+import java.util.EnumSet
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -219,6 +225,39 @@ class SshTransport(
                     }
                     override fun close() {
                         runCatching { out.close() }
+                        runCatching { ch.close(false) }
+                    }
+                }
+            }.getOrNull()
+        }
+    }
+
+    override suspend fun openExec(command: String): com.termforge.transport.ExecChannel? {
+        val sess = session ?: return null
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val ch = sess.createExecChannel(command)
+                ch.open().verify(Duration.ofMillis(config.connectTimeoutMs))
+                object : com.termforge.transport.ExecChannel {
+                    // Lines from the command's stdout. For `tail -F` this never completes until the
+                    // channel dies; for one-shot commands it completes at EOF.
+                    override val stdout: Flow<String> = channelFlow {
+                        val reader = BufferedReader(InputStreamReader(ch.invertedOut, Charsets.UTF_8))
+                        try {
+                            while (true) {
+                                val line = reader.readLine() ?: break
+                                trySend(line)
+                            }
+                        } catch (_: Throwable) { /* channel closed */ }
+                    }.flowOn(Dispatchers.IO)
+
+                    override suspend fun awaitExit(): Int = withContext(Dispatchers.IO) {
+                        ch.waitFor(EnumSet.of(ClientChannelEvent.CLOSED), 0L) // 0 = wait indefinitely
+                        ch.exitStatus ?: -1
+                    }
+
+                    // Read-only channel (we never wrote stdin) → no pending write to fail on close.
+                    override fun close() {
                         runCatching { ch.close(false) }
                     }
                 }
