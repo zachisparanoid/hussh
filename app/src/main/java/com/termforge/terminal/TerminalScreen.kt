@@ -146,14 +146,20 @@ fun TerminalScreen(navController: NavHostController, viewModel: TerminalViewMode
     }
     LaunchedEffect(Unit) { viewModel.prompts.collect { activePrompt = it } }
 
+    // Bell flash is driven by an ever-incrementing token (not a boolean) so rapid bells — e.g.
+    // holding backspace at an empty prompt — restart the clear-timer instead of racing it into a
+    // stuck-on state. During a burst the wash stays solid; it clears 120 ms after the last bell.
+    var bellToken by remember { mutableStateOf(0) }
     val onBell: () -> Unit = {
         when (settings.bellMode) {
             BellMode.VIBRATE -> vibrate(context)
-            BellMode.VISUAL -> bellFlash = true
+            BellMode.VISUAL -> bellToken++
             BellMode.SILENT -> {}
         }
     }
-    LaunchedEffect(bellFlash) { if (bellFlash) { delay(120); bellFlash = false } }
+    LaunchedEffect(bellToken) {
+        if (bellToken > 0) { bellFlash = true; delay(120); bellFlash = false }
+    }
 
     Scaffold(
         // The helper bar owns the bottom inset (ime/nav) itself; if the Scaffold also applied system

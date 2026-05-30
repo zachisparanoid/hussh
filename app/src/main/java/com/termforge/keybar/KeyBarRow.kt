@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -34,6 +35,22 @@ private const val INITIAL_REPEAT_DELAY_MS = 400L
 private const val REPEAT_INTERVAL_MS = 50L
 private const val MIN_REPEAT_INTERVAL_MS = 18L
 private const val ACCEL_STEP_MS = 4L
+private const val FIRST_CHAR_GUARD_MS = 60L
+
+/** Outcome of waiting on a held button: released, cancelled by a scroll, or still held at timeout. */
+private enum class PressOutcome { UP, CANCELLED, TIMEOUT }
+
+/**
+ * Waits up to [timeoutMillis] for the pointer to lift or the gesture to be cancelled. A parent scroll
+ * (the LazyRow) consuming the drag surfaces as cancellation — distinguishing a real hold (TIMEOUT)
+ * from the user sliding the bar (CANCELLED), which the old code conflated.
+ */
+private suspend fun AwaitPointerEventScope.awaitPressOutcome(timeoutMillis: Long): PressOutcome =
+    when (withTimeoutOrNull(timeoutMillis) { waitForUpOrCancellation() != null }) {
+        true -> PressOutcome.UP
+        false -> PressOutcome.CANCELLED
+        null -> PressOutcome.TIMEOUT
+    }
 
 /**
  * The scrollable keyboard helper bar. A single horizontal row that never wraps — overflow scrolls.
@@ -107,33 +124,40 @@ private fun KeyBarButton(
                         KeyBarButtonType.STICKY -> {
                             val mod = button.modifier
                             if (mod != null) {
-                                val releasedEarly = withTimeoutOrNull(LATCH_MS) { waitForUpOrCancellation() }
-                                if (releasedEarly == null) {
-                                    state.longPress(mod)            // held → toggle latch
-                                    waitForUpOrCancellation()       // consume the release
-                                } else {
-                                    state.tap(mod)                  // quick tap → one-shot toggle
+                                when (awaitPressOutcome(LATCH_MS)) {
+                                    PressOutcome.UP -> state.tap(mod)        // quick tap → one-shot
+                                    PressOutcome.CANCELLED -> Unit           // scrolled past → ignore
+                                    PressOutcome.TIMEOUT -> {                // held → latch
+                                        state.longPress(mod)
+                                        waitForUpOrCancellation()
+                                    }
                                 }
                             } else {
                                 waitForUpOrCancellation()
                             }
                         }
                         KeyBarButtonType.REPEATABLE -> {
-                            sendButton()
-                            val released = withTimeoutOrNull(INITIAL_REPEAT_DELAY_MS) { waitForUpOrCancellation() }
-                            if (released == null) {
-                                var interval = REPEAT_INTERVAL_MS
-                                while (true) {
-                                    val up = withTimeoutOrNull(interval) { waitForUpOrCancellation() }
-                                    if (up != null) break
+                            // Brief guard rules out a scroll before the first send, so dragging the
+                            // bar by grabbing an arrow never emits a keystroke.
+                            when (awaitPressOutcome(FIRST_CHAR_GUARD_MS)) {
+                                PressOutcome.CANCELLED -> Unit               // scrolled past → nothing
+                                PressOutcome.UP -> sendButton()              // very quick tap → one send
+                                PressOutcome.TIMEOUT -> {                    // pressed in place → send + maybe repeat
                                     sendButton()
-                                    interval = (interval - ACCEL_STEP_MS).coerceAtLeast(MIN_REPEAT_INTERVAL_MS)
+                                    if (awaitPressOutcome(INITIAL_REPEAT_DELAY_MS - FIRST_CHAR_GUARD_MS)
+                                        == PressOutcome.TIMEOUT
+                                    ) {
+                                        var interval = REPEAT_INTERVAL_MS
+                                        while (awaitPressOutcome(interval) == PressOutcome.TIMEOUT) {
+                                            sendButton()
+                                            interval = (interval - ACCEL_STEP_MS).coerceAtLeast(MIN_REPEAT_INTERVAL_MS)
+                                        }
+                                    }
                                 }
                             }
                         }
                         else -> {                                    // LITERAL / MOMENTARY / MACRO
-                            sendButton()
-                            waitForUpOrCancellation()
+                            if (waitForUpOrCancellation() != null) sendButton() // send on release, not on a scroll
                         }
                     }
                 }
