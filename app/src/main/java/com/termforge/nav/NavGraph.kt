@@ -10,6 +10,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.termforge.terminal.TerminalScreen
 import com.termforge.ui.active.ActiveSessionsScreen
+import com.termforge.ui.agents.AgentsScreen
 import com.termforge.ui.hostedit.HostEditorScreen
 import com.termforge.ui.hosts.HostListScreen
 import com.termforge.ui.identities.IdentityScreen
@@ -34,6 +35,7 @@ fun TermForgeNavGraph(navController: NavHostController) {
         composable(Routes.SNIPPETS) { SnippetsScreen(navController) }
         composable(Routes.SETTINGS) { SettingsScreen(navController) }
         composable(Routes.ACTIVE_SESSIONS) { ActiveSessionsScreen(navController) }
+        composable(Routes.AGENTS) { AgentsScreen(navController) }
 
         composable(
             route = Routes.HostEdit.PATTERN,

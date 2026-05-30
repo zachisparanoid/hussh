@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.MoreVert
@@ -67,6 +68,9 @@ fun HostListScreen(navController: NavHostController, viewModel: HostListViewMode
                         IconButton(onClick = { navController.navigate(Routes.ACTIVE_SESSIONS) }) {
                             Icon(Icons.Default.Dns, "Active sessions")
                         }
+                    }
+                    IconButton(onClick = { navController.navigate(Routes.AGENTS) }) {
+                        Icon(Icons.Default.SmartToy, "Agents")
                     }
                     IconButton(onClick = { searching = !searching }) { Icon(Icons.Default.Search, "Search") }
                     Box {
