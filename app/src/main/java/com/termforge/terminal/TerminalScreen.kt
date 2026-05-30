@@ -67,6 +67,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -108,11 +109,19 @@ fun TerminalScreen(navController: NavHostController, viewModel: TerminalViewMode
     var bellFlash by remember { mutableStateOf(false) }
     var activePrompt by remember { mutableStateOf<com.termforge.session.SessionPrompt?>(null) }
     var terminalView by remember { mutableStateOf<View?>(null) }
+    var helperBarVisible by remember { mutableStateOf(true) }
 
     val density = LocalDensity.current
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
     // When the keyboard is up, the system back button dismisses it instead of leaving the session.
     BackHandler(enabled = imeVisible) { terminalView?.let(::hideKeyboard) }
+
+    // Tapping the terminal: with the keyboard already up, toggle the helper bar (and keep the
+    // keyboard — only Back dismisses it). With the keyboard hidden, a tap brings it up.
+    val onTerminalTap: () -> Unit = {
+        if (imeVisible) helperBarVisible = !helperBarVisible
+        else terminalView?.let { showKeyboard(it) }
+    }
 
     // Push-to-talk voice state.
     val voiceActive by viewModel.voiceController.active.collectAsState()
@@ -147,6 +156,10 @@ fun TerminalScreen(navController: NavHostController, viewModel: TerminalViewMode
     LaunchedEffect(bellFlash) { if (bellFlash) { delay(120); bellFlash = false } }
 
     Scaffold(
+        // The helper bar owns the bottom inset (ime/nav) itself; if the Scaffold also applied system
+        // insets to the content, the nav-bar inset would be reserved twice, doubling the bar's
+        // apparent height. The TopAppBar still handles its own status-bar inset.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = { Text(connection?.title ?: "Terminal", maxLines = 1) },
@@ -197,7 +210,7 @@ fun TerminalScreen(navController: NavHostController, viewModel: TerminalViewMode
                 var hadConnection by remember { mutableStateOf(false) }
                 LaunchedEffect(conn) { if (conn != null) hadConnection = true }
                 if (conn != null) {
-                    TerminalSurface(conn, viewModel, onBell, onViewCreated = { terminalView = it })
+                    TerminalSurface(conn, viewModel, onBell, onSingleTap = onTerminalTap, onViewCreated = { terminalView = it })
                 } else if (hadConnection) {
                     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
@@ -218,33 +231,36 @@ fun TerminalScreen(navController: NavHostController, viewModel: TerminalViewMode
                 FontHud(fontSp, hudToken, Modifier.align(Alignment.TopCenter))
             }
 
-            // The helper bar: one row tall, sitting above the keyboard (or nav bar when hidden).
-            // union(ime, navigationBars) avoids double-counting; the background wraps only the row.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (settings.voiceStreamEnabled) {
-                    MicButton(
-                        recording = voiceActive,
-                        onPress = {
-                            if (hasAudioPermission) viewModel.voicePress()
-                            else audioPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        },
-                        onRelease = { if (hasAudioPermission) viewModel.voiceRelease() },
+            // The helper bar: one row tall, sitting directly above the keyboard (or nav bar when
+            // hidden). The Scaffold adds no content insets, so this owns the bottom inset once.
+            // Tapping the terminal while the keyboard is up toggles its visibility.
+            AnimatedVisibility(visible = helperBarVisible) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (settings.voiceStreamEnabled) {
+                        MicButton(
+                            recording = voiceActive,
+                            onPress = {
+                                if (hasAudioPermission) viewModel.voicePress()
+                                else audioPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            },
+                            onRelease = { if (hasAudioPermission) viewModel.voiceRelease() },
+                        )
+                    }
+                    KeyBarRow(
+                        layout = layout,
+                        state = viewModel.keyBarState,
+                        appCursor = { viewModel.appCursorMode() },
+                        backspaceByte = { backspaceByte },
+                        onSend = { viewModel.send(it) },
+                        modifier = Modifier.weight(1f),
                     )
                 }
-                KeyBarRow(
-                    layout = layout,
-                    state = viewModel.keyBarState,
-                    appCursor = { viewModel.appCursorMode() },
-                    backspaceByte = { backspaceByte },
-                    onSend = { viewModel.send(it) },
-                    modifier = Modifier.weight(1f),
-                )
             }
         }
     }
@@ -276,6 +292,7 @@ private fun TerminalSurface(
     connection: TerminalConnection,
     viewModel: TerminalViewModel,
     onBell: () -> Unit,
+    onSingleTap: () -> Unit,
     onViewCreated: (View) -> Unit,
 ) {
     val context = LocalContext.current
@@ -283,6 +300,9 @@ private fun TerminalSurface(
     val clipboard = LocalClipboardManager.current
     val fontSp by viewModel.fontSizeController.sizeSp.collectAsState()
     val themeId by viewModel.terminalThemeId.collectAsState()
+    // The AndroidView factory runs once and captures its lambdas; keep the tap handler current so
+    // it always sees the latest keyboard/bar state.
+    val currentTap = rememberUpdatedState(onSingleTap)
 
     DisposableEffect(connection.sessionId) { onDispose { connection.detachClient() } }
 
@@ -300,7 +320,7 @@ private fun TerminalSurface(
                     keyBarState = viewModel.keyBarState,
                     fontSizeController = viewModel.fontSizeController,
                     density = density,
-                    onSingleTap = { showKeyboard(tv) },
+                    onSingleTap = { currentTap.value() },
                     onCopyModeChanged = {},
                     postConsume = { action -> tv.post { action() } },
                 ),
