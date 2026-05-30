@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicNone
 import androidx.compose.material.icons.filled.Keyboard
@@ -109,18 +110,24 @@ fun TerminalScreen(navController: NavHostController, viewModel: TerminalViewMode
     var bellFlash by remember { mutableStateOf(false) }
     var activePrompt by remember { mutableStateOf<com.termforge.session.SessionPrompt?>(null) }
     var terminalView by remember { mutableStateOf<View?>(null) }
+    var glideView by remember { mutableStateOf<View?>(null) }
     var helperBarVisible by remember { mutableStateOf(true) }
+    val glideEnabled = settings.glideTypingEnabled
+    // The view the keyboard should target: the hidden glide field when glide mode is on, else the
+    // terminal itself.
+    val inputView = if (glideEnabled) glideView else terminalView
 
     val density = LocalDensity.current
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
     // When the keyboard is up, the system back button dismisses it instead of leaving the session.
-    BackHandler(enabled = imeVisible) { terminalView?.let(::hideKeyboard) }
+    BackHandler(enabled = imeVisible) { inputView?.let(::hideKeyboard) }
 
     // Tapping the terminal: with the keyboard already up, toggle the helper bar (and keep the
-    // keyboard — only Back dismisses it). With the keyboard hidden, a tap brings it up.
+    // keyboard — only Back dismisses it). With the keyboard hidden, a tap brings it up (on the glide
+    // field when glide mode is on, otherwise the terminal).
     val onTerminalTap: () -> Unit = {
         if (imeVisible) helperBarVisible = !helperBarVisible
-        else terminalView?.let { showKeyboard(it) }
+        else inputView?.let { showKeyboard(it) }
     }
 
     // Push-to-talk voice state.
@@ -176,11 +183,25 @@ fun TerminalScreen(navController: NavHostController, viewModel: TerminalViewMode
                 },
                 actions = {
                     IconButton(onClick = {
-                        terminalView?.let { if (imeVisible) hideKeyboard(it) else showKeyboard(it) }
+                        inputView?.let { if (imeVisible) hideKeyboard(it) else showKeyboard(it) }
                     }) {
                         Icon(
                             if (imeVisible) Icons.Default.KeyboardHide else Icons.Default.Keyboard,
                             if (imeVisible) "Hide keyboard" else "Show keyboard",
+                        )
+                    }
+                    // Toggle raw ⇄ glide input. Glide mode routes the keyboard through a hidden
+                    // composing field so swipe typing works; raw mode sends keys straight to the shell.
+                    IconButton(onClick = {
+                        val turningOn = !glideEnabled
+                        viewModel.setGlideTyping(turningOn)
+                        if (!turningOn) terminalView?.let { showKeyboard(it) }
+                    }) {
+                        Icon(
+                            Icons.Default.Gesture,
+                            if (glideEnabled) "Swipe typing on (tap for raw)" else "Raw typing (tap for swipe)",
+                            tint = if (glideEnabled) MaterialTheme.colorScheme.primary
+                            else androidx.compose.ui.graphics.Color.Unspecified,
                         )
                     }
                     IconButton(onClick = {
@@ -233,6 +254,20 @@ fun TerminalScreen(navController: NavHostController, viewModel: TerminalViewMode
                 }
                 if (bellFlash) {
                     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f)))
+                }
+                // Glide mode: a hidden field captures the keyboard and mirrors keystrokes/swipes to
+                // the terminal. Only present while enabled, so raw input is untouched.
+                if (glideEnabled && connection != null) {
+                    GlideInputField(
+                        backspaceByte = backspaceByte,
+                        onForward = { viewModel.send(it) },
+                        onViewCreated = { v ->
+                            glideView = v
+                            v.requestFocus()
+                            showKeyboard(v)
+                        },
+                        modifier = Modifier.align(Alignment.BottomStart),
+                    )
                 }
                 FontHud(fontSp, hudToken, Modifier.align(Alignment.TopCenter))
             }

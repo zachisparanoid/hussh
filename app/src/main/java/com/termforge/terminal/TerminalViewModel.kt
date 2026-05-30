@@ -33,7 +33,7 @@ class TerminalViewModel @Inject constructor(
     private val promptHub: PromptHub,
     snippetRepo: com.termforge.data.repo.SnippetRepository,
     val fontSizeController: FontSizeController,
-    appPrefs: AppPreferences,
+    private val appPrefs: AppPreferences,
 ) : ViewModel() {
 
     val snippets = snippetRepo.observeSnippets()
@@ -103,4 +103,6 @@ class TerminalViewModel @Inject constructor(
     fun voiceRelease() {
         connection.value?.let { voiceController.release(it, voiceTriggerKey, settings.value.voiceTailDrainMs) }
     }
+
+    fun setGlideTyping(enabled: Boolean) = viewModelScope.launch { appPrefs.setGlideTyping(enabled) }
 }

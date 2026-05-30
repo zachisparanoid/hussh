@@ -74,6 +74,7 @@ fun SettingsScreen(navController: NavHostController, viewModel: SettingsViewMode
             ToggleRow("Font ligatures", s.ligatures, viewModel::setLigatures)
             EnumDropdown("Bell", s.bellMode, BellMode.entries.toList(), { it.name.lowercase().replaceFirstChar(Char::uppercase) }, viewModel::setBellMode, Modifier.fillMaxWidth())
             ToggleRow("Volume keys resize font", s.volumeKeysResizeFont, viewModel::setVolumeKeys)
+            ToggleRow("Glide / swipe typing (experimental)", s.glideTypingEnabled, viewModel::setGlideTyping)
             EnumDropdown("Backspace sends", s.defaultBackspace, BackspaceMode.entries.toList(), { if (it == BackspaceMode.DEL) "DEL (0x7F)" else "BS (0x08)" }, viewModel::setBackspace, Modifier.fillMaxWidth())
             NumberField("Scrollback lines", s.scrollbackLines, viewModel::setScrollback)
 

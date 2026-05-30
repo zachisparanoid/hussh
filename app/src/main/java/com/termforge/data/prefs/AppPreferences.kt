@@ -35,6 +35,10 @@ data class AppSettings(
     val promptedBatteryOptimization: Boolean = false,
     val voiceStreamEnabled: Boolean = false,
     val voiceSinkCommand: String = DEFAULT_VOICE_SINK,
+    /** Glide/swipe-typing input mode. When on, a hidden composing field captures the keyboard
+     *  (so swipe typing + suggestions work) and mirrors keystrokes to the terminal; when off, keys
+     *  go straight to the terminal raw (bulletproof for commands). Toggled per session. */
+    val glideTypingEnabled: Boolean = false,
     /** Wait this long after release for the audio pipeline to drain before sending the stop key, so
      *  the remote transcriber receives the tail of your speech (audio travels a slower path than the
      *  keystroke). Raise it if the end of your words gets cut off. */
@@ -69,6 +73,7 @@ class AppPreferences @Inject constructor(
         val VOICE_STREAM = booleanPreferencesKey("voice_stream_enabled")
         val VOICE_SINK = stringPreferencesKey("voice_sink_command")
         val VOICE_TAIL_DRAIN = intPreferencesKey("voice_tail_drain_ms")
+        val GLIDE_TYPING = booleanPreferencesKey("glide_typing_enabled")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -90,6 +95,7 @@ class AppPreferences @Inject constructor(
             voiceStreamEnabled = p[Keys.VOICE_STREAM] ?: false,
             voiceSinkCommand = p[Keys.VOICE_SINK] ?: DEFAULT_VOICE_SINK,
             voiceTailDrainMs = p[Keys.VOICE_TAIL_DRAIN] ?: 1200,
+            glideTypingEnabled = p[Keys.GLIDE_TYPING] ?: false,
         )
     }
 
@@ -110,6 +116,7 @@ class AppPreferences @Inject constructor(
     suspend fun setVoiceStream(v: Boolean) = edit { it[Keys.VOICE_STREAM] = v }
     suspend fun setVoiceSinkCommand(v: String) = edit { it[Keys.VOICE_SINK] = v }
     suspend fun setVoiceTailDrainMs(v: Int) = edit { it[Keys.VOICE_TAIL_DRAIN] = v.coerceIn(0, 5000) }
+    suspend fun setGlideTyping(v: Boolean) = edit { it[Keys.GLIDE_TYPING] = v }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         context.dataStore.edit(block)
