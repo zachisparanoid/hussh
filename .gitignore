@@ -1,0 +1,29 @@
+*.iml
+.gradle/
+/local.properties
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+*.keystore
+!debug.keystore
+
+# Module build dirs
+**/build/
+
+# Android Studio / IntelliJ
+.idea/
+*.hprof
+
+# Keep gradle wrapper
+!gradle-wrapper.jar
+
+# External reference clone (has its own .git; re-clone as needed) and compiled repro artifacts
+/resources/claude-code/
+*.class
+
+# Vendored Termux source is kept, but not any build output
+terminal-emulator/build/
+terminal-view/build/

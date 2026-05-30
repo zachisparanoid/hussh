@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">TermForge</string>
+    <string name="session_notification_channel">Active sessions</string>
+    <string name="session_notification_channel_desc">Keeps your terminal connections alive in the background.</string>
+</resources>
