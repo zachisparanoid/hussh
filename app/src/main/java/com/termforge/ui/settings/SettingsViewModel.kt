@@ -39,4 +39,5 @@ class SettingsViewModel @Inject constructor(
     fun setVoiceSinkCommand(v: String) = viewModelScope.launch { prefs.setVoiceSinkCommand(v) }
     fun setVoiceTailDrainMs(v: Int) = viewModelScope.launch { prefs.setVoiceTailDrainMs(v) }
     fun setGlideTyping(v: Boolean) = viewModelScope.launch { prefs.setGlideTyping(v) }
+    fun setAgentAttention(v: Boolean) = viewModelScope.launch { prefs.setAgentAttention(v) }
 }

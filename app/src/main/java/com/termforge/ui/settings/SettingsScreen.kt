@@ -121,6 +121,15 @@ fun SettingsScreen(navController: NavHostController, viewModel: SettingsViewMode
                     "`/voice tap` enabled in Claude Code.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            Section("Agent")
+            ToggleRow("Claude attention notifications", s.agentAttentionEnabled, viewModel::setAgentAttention)
+            Text(
+                "Notifies you when Claude Code on a connected host finishes a turn or needs input — so " +
+                    "you don't have to keep checking. Requires running " +
+                    "resources/server/termforge-notify-setup.sh on that machine.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
