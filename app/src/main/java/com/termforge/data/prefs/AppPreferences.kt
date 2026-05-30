@@ -43,6 +43,10 @@ data class AppSettings(
      *  the remote transcriber receives the tail of your speech (audio travels a slower path than the
      *  keystroke). Raise it if the end of your words gets cut off. */
     val voiceTailDrainMs: Int = 1200,
+    /** Opt-in "Claude needs you" notifications. When on, TermForge watches each session's stream for
+     *  the agent-attention marker (emitted by a Claude Code hook) and notifies you when Claude finishes
+     *  a turn or needs input. Off by default; also requires running termforge-notify-setup.sh remotely. */
+    val agentAttentionEnabled: Boolean = false,
 )
 
 /** The remote command TermForge pipes mic audio into (PulseAudio virtual-mic FIFO). */
@@ -74,6 +78,7 @@ class AppPreferences @Inject constructor(
         val VOICE_SINK = stringPreferencesKey("voice_sink_command")
         val VOICE_TAIL_DRAIN = intPreferencesKey("voice_tail_drain_ms")
         val GLIDE_TYPING = booleanPreferencesKey("glide_typing_enabled")
+        val AGENT_ATTENTION = booleanPreferencesKey("agent_attention_enabled")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -96,6 +101,7 @@ class AppPreferences @Inject constructor(
             voiceSinkCommand = p[Keys.VOICE_SINK] ?: DEFAULT_VOICE_SINK,
             voiceTailDrainMs = p[Keys.VOICE_TAIL_DRAIN] ?: 1200,
             glideTypingEnabled = p[Keys.GLIDE_TYPING] ?: false,
+            agentAttentionEnabled = p[Keys.AGENT_ATTENTION] ?: false,
         )
     }
 
@@ -117,6 +123,7 @@ class AppPreferences @Inject constructor(
     suspend fun setVoiceSinkCommand(v: String) = edit { it[Keys.VOICE_SINK] = v }
     suspend fun setVoiceTailDrainMs(v: Int) = edit { it[Keys.VOICE_TAIL_DRAIN] = v.coerceIn(0, 5000) }
     suspend fun setGlideTyping(v: Boolean) = edit { it[Keys.GLIDE_TYPING] = v }
+    suspend fun setAgentAttention(v: Boolean) = edit { it[Keys.AGENT_ATTENTION] = v }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         context.dataStore.edit(block)
