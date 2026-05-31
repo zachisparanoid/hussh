@@ -24,6 +24,10 @@ data class AgentInstance(
     /** Routable only if it lives in a tmux pane (we can `send-keys` to it). */
     val routable: Boolean get() = paneId != null && socket != null
     val key: String get() = "$hostId:${socket ?: "_"}:${paneId ?: cwd ?: "_"}"
+
+    /** Stable per-session identity for the notify mute toggle — keyed by tmux session name (or cwd),
+     *  so it survives the pane id changing when a Claude is restarted in the same session. */
+    val enableKey: String get() = "$hostId:${sessionName ?: cwd ?: paneId ?: "_"}"
 }
 
 /**

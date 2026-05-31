@@ -74,6 +74,7 @@ class SessionManager @Inject constructor(
     /** Hot-path snapshot of the opt-in flag, read once per inbound chunk; kept live by the collector
      *  below instead of re-reading DataStore each time (which would stutter the terminal). */
     @Volatile private var agentAttentionEnabled = false
+    @Volatile private var mutedAgents: Set<String> = emptySet()
     /** The session the user is actively viewing (foreground); its own attention pings are suppressed. */
     @Volatile var visibleSessionId: String? = null
         private set
@@ -87,7 +88,10 @@ class SessionManager @Inject constructor(
 
     init {
         managerScope.launch {
-            appPrefs.settings.collect { agentAttentionEnabled = it.agentAttentionEnabled }
+            appPrefs.settings.collect {
+                agentAttentionEnabled = it.agentAttentionEnabled
+                mutedAgents = it.mutedAgentSessions
+            }
         }
     }
 
@@ -257,6 +261,7 @@ class SessionManager @Inject constructor(
 
     /** A specific Claude instance saw a needs-you transition. Debounced per instance. */
     private fun onInstanceAttention(inst: AgentInstance) {
+        if (inst.enableKey in mutedAgents) return // this session is muted
         val now = SystemClock.elapsedRealtime()
         if (now - (lastAttentionAtMs[inst.key] ?: 0L) < ATTENTION_DEBOUNCE_MS) return
         lastAttentionAtMs[inst.key] = now

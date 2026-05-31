@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.termforge.data.db.BackspaceMode
 import com.termforge.ui.theme.AppTheme
@@ -47,6 +48,9 @@ data class AppSettings(
      *  the agent-attention marker (emitted by a Claude Code hook) and notifies you when Claude finishes
      *  a turn or needs input. Off by default; also requires running termforge-notify-setup.sh remotely. */
     val agentAttentionEnabled: Boolean = false,
+    /** Per-session mutes (keyed by host+tmux-session). A session in here fires no notifications even
+     *  when [agentAttentionEnabled] is on — default is "notify all, mute the noisy ones". */
+    val mutedAgentSessions: Set<String> = emptySet(),
 )
 
 /** The remote command TermForge pipes mic audio into (PulseAudio virtual-mic FIFO). */
@@ -79,6 +83,7 @@ class AppPreferences @Inject constructor(
         val VOICE_TAIL_DRAIN = intPreferencesKey("voice_tail_drain_ms")
         val GLIDE_TYPING = booleanPreferencesKey("glide_typing_enabled")
         val AGENT_ATTENTION = booleanPreferencesKey("agent_attention_enabled")
+        val MUTED_AGENTS = stringSetPreferencesKey("muted_agent_sessions")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -102,6 +107,7 @@ class AppPreferences @Inject constructor(
             voiceTailDrainMs = p[Keys.VOICE_TAIL_DRAIN] ?: 1200,
             glideTypingEnabled = p[Keys.GLIDE_TYPING] ?: false,
             agentAttentionEnabled = p[Keys.AGENT_ATTENTION] ?: false,
+            mutedAgentSessions = p[Keys.MUTED_AGENTS] ?: emptySet(),
         )
     }
 
@@ -124,6 +130,10 @@ class AppPreferences @Inject constructor(
     suspend fun setVoiceTailDrainMs(v: Int) = edit { it[Keys.VOICE_TAIL_DRAIN] = v.coerceIn(0, 5000) }
     suspend fun setGlideTyping(v: Boolean) = edit { it[Keys.GLIDE_TYPING] = v }
     suspend fun setAgentAttention(v: Boolean) = edit { it[Keys.AGENT_ATTENTION] = v }
+    suspend fun setAgentSessionMuted(key: String, muted: Boolean) = edit { p ->
+        val cur = p[Keys.MUTED_AGENTS] ?: emptySet()
+        p[Keys.MUTED_AGENTS] = if (muted) cur + key else cur - key
+    }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         context.dataStore.edit(block)

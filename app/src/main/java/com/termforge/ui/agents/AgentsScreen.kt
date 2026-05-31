@@ -11,6 +11,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -44,6 +46,7 @@ import com.termforge.nav.Routes
 @Composable
 fun AgentsScreen(navController: NavHostController, viewModel: AgentsViewModel = hiltViewModel()) {
     val instances by viewModel.instances.collectAsState()
+    val muted by viewModel.mutedSessions.collectAsState()
 
     Scaffold(
         topBar = {
@@ -74,8 +77,11 @@ fun AgentsScreen(navController: NavHostController, viewModel: AgentsViewModel = 
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(instances, key = { it.key }) { inst ->
+                    val isMuted = inst.enableKey in muted
                     AgentCard(
                         inst = inst,
+                        isMuted = isMuted,
+                        onToggleMute = { viewModel.setMuted(inst, !isMuted) },
                         onFocus = {
                             viewModel.focus(inst)
                             viewModel.sessionIdForHost(inst.hostId)?.let {
@@ -96,6 +102,8 @@ fun AgentsScreen(navController: NavHostController, viewModel: AgentsViewModel = 
 @Composable
 private fun AgentCard(
     inst: AgentInstance,
+    isMuted: Boolean,
+    onToggleMute: () -> Unit,
     onFocus: () -> Unit,
     onApprove: () -> Unit,
     onDeny: () -> Unit,
@@ -112,6 +120,13 @@ private fun AgentCard(
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 ReasonChip(inst.reason)
+                IconButton(onClick = onToggleMute) {
+                    Icon(
+                        if (isMuted) Icons.Default.NotificationsOff else Icons.Default.NotificationsActive,
+                        if (isMuted) "Muted — tap to enable notifications" else "Notifying — tap to mute",
+                        tint = if (isMuted) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
             inst.cwd?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1,
