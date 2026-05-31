@@ -12,6 +12,9 @@ class AgentRouter(private val openExec: suspend (String) -> ExecChannel?) {
     suspend fun focus(i: AgentInstance): Boolean = run("sh $ROUTE focus ${q(i.socket)} ${q(i.paneId)}")
     suspend fun sendText(i: AgentInstance, text: String): Boolean =
         run("sh $ROUTE send ${q(i.socket)} ${q(i.paneId)} ${q(text)}")
+    /** Type text into the pane WITHOUT Enter — lands in Claude's input for review before sending. */
+    suspend fun typeText(i: AgentInstance, text: String): Boolean =
+        run("sh $ROUTE type ${q(i.socket)} ${q(i.paneId)} ${q(text)}")
     suspend fun sendKey(i: AgentInstance, key: String): Boolean =
         run("sh $ROUTE sendkey ${q(i.socket)} ${q(i.paneId)} ${q(key)}")
 

@@ -57,6 +57,16 @@
             android:name=".session.AgentActionReceiver"
             android:exported="false" />
 
+        <!-- Receives commands from the Wear OS companion (approve/deny/send/voice). -->
+        <service
+            android:name=".wearlink.WearCommandService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/tf/cmd" />
+            </intent-filter>
+        </service>
+
         <!-- For sharing exported public keys / session logs. -->
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -110,6 +110,10 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
 
+    // Wear OS Data Layer (phone side of the watch companion)
+    implementation(libs.play.services.wearable)
+    implementation(libs.kotlinx.coroutines.play.services)
+
     // Prefs / biometric / reorder
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.biometric)

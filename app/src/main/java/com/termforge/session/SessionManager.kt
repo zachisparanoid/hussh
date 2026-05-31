@@ -7,6 +7,8 @@ import android.os.SystemClock
 import com.termforge.agent.AgentInstance
 import com.termforge.agent.AgentInstanceRegistry
 import com.termforge.agent.AgentRouter
+import com.termforge.agent.toWire
+import com.termforge.wearlink.WearLinkPublisher
 import com.termforge.data.db.ForwardType
 import com.termforge.data.db.entities.HostEntity
 import com.termforge.data.prefs.AppPreferences
@@ -65,6 +67,7 @@ class SessionManager @Inject constructor(
     private val transportFactory: TransportFactory,
     private val promptHub: PromptHub,
     private val attentionNotifier: AttentionNotifier,
+    private val wearLinkPublisher: WearLinkPublisher,
 ) {
     private val _sessions = MutableStateFlow<List<TerminalConnection>>(emptyList())
     val sessions = _sessions.asStateFlow()
@@ -257,6 +260,9 @@ class SessionManager @Inject constructor(
         _instances.value = registries.values
             .flatMap { it.instances.value.values }
             .sortedBy { (it.sessionName ?: "") + "/" + (it.windowName ?: "") }
+        // Mirror the fleet to a paired watch (no-op if none paired).
+        val wire = _instances.value.map { it.toWire() }
+        managerScope.launch { runCatching { wearLinkPublisher.publish(wire) } }
     }
 
     /** A specific Claude instance saw a needs-you transition. Debounced per instance. */
@@ -297,6 +303,11 @@ class SessionManager @Inject constructor(
 
     fun routeText(inst: AgentInstance, text: String) {
         managerScope.launch { runCatching { routerForHost(inst.hostId)?.sendText(inst, text) } }
+    }
+
+    /** Type text into the instance without submitting (watch voice → review on phone → Send). */
+    fun routeType(inst: AgentInstance, text: String) {
+        managerScope.launch { runCatching { routerForHost(inst.hostId)?.typeText(inst, text) } }
     }
 
     /**

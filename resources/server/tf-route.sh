@@ -31,6 +31,10 @@ case "$CMD" in
     SOCK="${1:-$DEFSOCK}"; PANE="$2"; shift 2 2>/dev/null || true; TEXT="$*"
     tmux -S "$SOCK" send-keys -t "$PANE" -l -- "$TEXT" 2>/dev/null \
       && tmux -S "$SOCK" send-keys -t "$PANE" Enter 2>/dev/null && echo OK || { echo FAIL; exit 1; } ;;
+  type)
+    # Type text into the pane WITHOUT pressing Enter (review-before-send for watch voice).
+    SOCK="${1:-$DEFSOCK}"; PANE="$2"; shift 2 2>/dev/null || true; TEXT="$*"
+    tmux -S "$SOCK" send-keys -t "$PANE" -l -- "$TEXT" 2>/dev/null && echo OK || { echo FAIL; exit 1; } ;;
   sendkey)
     SOCK="${1:-$DEFSOCK}"; PANE="$2"; KEY="$3"
     tmux -S "$SOCK" send-keys -t "$PANE" "$KEY" 2>/dev/null && echo OK || { echo FAIL; exit 1; } ;;
