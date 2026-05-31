@@ -25,6 +25,11 @@ class AgentsViewModel @Inject constructor(
         .map { it.mutedAgentSessions }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
+    /** Per-session opt-in for the watch. */
+    val watchEnabled = appPrefs.settings
+        .map { it.watchEnabledSessions }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
     fun focus(i: AgentInstance) = sessionManager.focusInstance(i)
     fun approve(i: AgentInstance) = sessionManager.routeApprove(i)
     fun deny(i: AgentInstance) = sessionManager.routeDeny(i)
@@ -32,6 +37,8 @@ class AgentsViewModel @Inject constructor(
     fun reply(i: AgentInstance, text: String) = sessionManager.routeText(i, text)
     fun setMuted(i: AgentInstance, muted: Boolean) =
         viewModelScope.launch { appPrefs.setAgentSessionMuted(i.enableKey, muted) }
+    fun setWatchEnabled(i: AgentInstance, enabled: Boolean) =
+        viewModelScope.launch { appPrefs.setWatchEnabled(i.enableKey, enabled) }
 
     /** sessionId of a live connection to this instance's host, for navigating the terminal to it. */
     fun sessionIdForHost(hostId: Long): String? = sessionManager.sessionIdForHost(hostId)

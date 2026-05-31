@@ -51,6 +51,9 @@ data class AppSettings(
     /** Per-session mutes (keyed by host+tmux-session). A session in here fires no notifications even
      *  when [agentAttentionEnabled] is on — default is "notify all, mute the noisy ones". */
     val mutedAgentSessions: Set<String> = emptySet(),
+    /** Per-session opt-in for the watch (keyed by host+tmux-session). Only sessions in here are
+     *  pushed to a paired Wear OS watch — the wrist is the selective surface. */
+    val watchEnabledSessions: Set<String> = emptySet(),
 )
 
 /** The remote command TermForge pipes mic audio into (PulseAudio virtual-mic FIFO). */
@@ -84,6 +87,7 @@ class AppPreferences @Inject constructor(
         val GLIDE_TYPING = booleanPreferencesKey("glide_typing_enabled")
         val AGENT_ATTENTION = booleanPreferencesKey("agent_attention_enabled")
         val MUTED_AGENTS = stringSetPreferencesKey("muted_agent_sessions")
+        val WATCH_ENABLED = stringSetPreferencesKey("watch_enabled_sessions")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -108,6 +112,7 @@ class AppPreferences @Inject constructor(
             glideTypingEnabled = p[Keys.GLIDE_TYPING] ?: false,
             agentAttentionEnabled = p[Keys.AGENT_ATTENTION] ?: false,
             mutedAgentSessions = p[Keys.MUTED_AGENTS] ?: emptySet(),
+            watchEnabledSessions = p[Keys.WATCH_ENABLED] ?: emptySet(),
         )
     }
 
@@ -133,6 +138,10 @@ class AppPreferences @Inject constructor(
     suspend fun setAgentSessionMuted(key: String, muted: Boolean) = edit { p ->
         val cur = p[Keys.MUTED_AGENTS] ?: emptySet()
         p[Keys.MUTED_AGENTS] = if (muted) cur + key else cur - key
+    }
+    suspend fun setWatchEnabled(key: String, enabled: Boolean) = edit { p ->
+        val cur = p[Keys.WATCH_ENABLED] ?: emptySet()
+        p[Keys.WATCH_ENABLED] = if (enabled) cur + key else cur - key
     }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {

@@ -14,6 +14,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.OpenInFull
+import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -47,6 +48,7 @@ import com.termforge.nav.Routes
 fun AgentsScreen(navController: NavHostController, viewModel: AgentsViewModel = hiltViewModel()) {
     val instances by viewModel.instances.collectAsState()
     val muted by viewModel.mutedSessions.collectAsState()
+    val watchOn by viewModel.watchEnabled.collectAsState()
 
     Scaffold(
         topBar = {
@@ -78,10 +80,13 @@ fun AgentsScreen(navController: NavHostController, viewModel: AgentsViewModel = 
             ) {
                 items(instances, key = { it.key }) { inst ->
                     val isMuted = inst.enableKey in muted
+                    val onWatch = inst.enableKey in watchOn
                     AgentCard(
                         inst = inst,
                         isMuted = isMuted,
                         onToggleMute = { viewModel.setMuted(inst, !isMuted) },
+                        isWatchEnabled = onWatch,
+                        onToggleWatch = { viewModel.setWatchEnabled(inst, !onWatch) },
                         onFocus = {
                             viewModel.focus(inst)
                             viewModel.sessionIdForHost(inst.hostId)?.let {
@@ -104,6 +109,8 @@ private fun AgentCard(
     inst: AgentInstance,
     isMuted: Boolean,
     onToggleMute: () -> Unit,
+    isWatchEnabled: Boolean,
+    onToggleWatch: () -> Unit,
     onFocus: () -> Unit,
     onApprove: () -> Unit,
     onDeny: () -> Unit,
@@ -125,6 +132,13 @@ private fun AgentCard(
                         if (isMuted) Icons.Default.NotificationsOff else Icons.Default.NotificationsActive,
                         if (isMuted) "Muted — tap to enable notifications" else "Notifying — tap to mute",
                         tint = if (isMuted) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.primary,
+                    )
+                }
+                IconButton(onClick = onToggleWatch) {
+                    Icon(
+                        Icons.Default.Watch,
+                        if (isWatchEnabled) "On watch — tap to remove" else "Not on watch — tap to add",
+                        tint = if (isWatchEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                     )
                 }
             }

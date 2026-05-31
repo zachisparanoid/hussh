@@ -78,6 +78,7 @@ class SessionManager @Inject constructor(
      *  below instead of re-reading DataStore each time (which would stutter the terminal). */
     @Volatile private var agentAttentionEnabled = false
     @Volatile private var mutedAgents: Set<String> = emptySet()
+    @Volatile private var watchEnabledSessions: Set<String> = emptySet()
     /** The session the user is actively viewing (foreground); its own attention pings are suppressed. */
     @Volatile var visibleSessionId: String? = null
         private set
@@ -94,6 +95,8 @@ class SessionManager @Inject constructor(
             appPrefs.settings.collect {
                 agentAttentionEnabled = it.agentAttentionEnabled
                 mutedAgents = it.mutedAgentSessions
+                watchEnabledSessions = it.watchEnabledSessions
+                recomputeInstances() // re-publish to the watch when the enabled set changes
             }
         }
     }
@@ -260,8 +263,8 @@ class SessionManager @Inject constructor(
         _instances.value = registries.values
             .flatMap { it.instances.value.values }
             .sortedBy { (it.sessionName ?: "") + "/" + (it.windowName ?: "") }
-        // Mirror the fleet to a paired watch (no-op if none paired).
-        val wire = _instances.value.map { it.toWire() }
+        // Mirror only the watch-enabled sessions to a paired watch (no-op if none paired/enabled).
+        val wire = _instances.value.filter { it.enableKey in watchEnabledSessions }.map { it.toWire() }
         managerScope.launch { runCatching { wearLinkPublisher.publish(wire) } }
     }
 
