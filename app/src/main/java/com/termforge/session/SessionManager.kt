@@ -93,10 +93,22 @@ class SessionManager @Inject constructor(
     init {
         managerScope.launch {
             appPrefs.settings.collect {
+                val wasEnabled = agentAttentionEnabled
                 agentAttentionEnabled = it.agentAttentionEnabled
                 mutedAgents = it.mutedAgentSessions
                 watchEnabledSessions = it.watchEnabledSessions
-                recomputeInstances() // re-publish to the watch when the enabled set changes
+                // Sync registries to the setting + currently-connected sessions. Also fixes the
+                // cold-start race where a connection is made before this flag finishes loading from
+                // DataStore (which previously left that connection with no registry → empty Agents).
+                if (agentAttentionEnabled) {
+                    _sessions.value.forEach { c ->
+                        if (!registries.containsKey(c.sessionId)) startRegistry(c.sessionId, c.hostId, c)
+                    }
+                } else if (wasEnabled) {
+                    registries.keys.toList().forEach { registries.remove(it)?.stop() }
+                }
+                android.util.Log.i("TFAgent", "settings: enabled=$agentAttentionEnabled sessions=${_sessions.value.size} registries=${registries.size}")
+                recomputeInstances()
             }
         }
     }
@@ -181,6 +193,7 @@ class SessionManager @Inject constructor(
         )
         _sessions.update { it + connection }
         connection.start()
+        android.util.Log.i("TFAgent", "startConnection sid=$sessionId host=$hostId enabled=$agentAttentionEnabled")
         if (agentAttentionEnabled) startRegistry(sessionId, hostId, connection)
         hostRepo.touchLastConnected(hostId, System.currentTimeMillis())
         startService()
@@ -247,6 +260,7 @@ class SessionManager @Inject constructor(
 
     private fun startRegistry(sessionId: String, hostId: Long, connection: TerminalConnection) {
         if (registries.containsKey(sessionId)) return
+        android.util.Log.i("TFAgent", "startRegistry sid=$sessionId host=$hostId")
         val reg = AgentInstanceRegistry(
             hostId = hostId,
             scope = managerScope,
@@ -263,6 +277,7 @@ class SessionManager @Inject constructor(
         _instances.value = registries.values
             .flatMap { it.instances.value.values }
             .sortedBy { (it.sessionName ?: "") + "/" + (it.windowName ?: "") }
+        android.util.Log.i("TFAgent", "merged instances=${_instances.value.size} registries=${registries.size}")
         // Mirror only the watch-enabled sessions to a paired watch (no-op if none paired/enabled).
         val wire = _instances.value.filter { it.enableKey in watchEnabledSessions }.map { it.toWire() }
         managerScope.launch { runCatching { wearLinkPublisher.publish(wire) } }
@@ -302,15 +317,18 @@ class SessionManager @Inject constructor(
 
     fun routeContinue(inst: AgentInstance) {
         managerScope.launch { runCatching { routerForHost(inst.hostId)?.cont(inst) } }
+        attentionNotifier.cancelInstance(inst) // responded → clear the ping (visible change on the watch)
     }
 
     fun routeText(inst: AgentInstance, text: String) {
         managerScope.launch { runCatching { routerForHost(inst.hostId)?.sendText(inst, text) } }
+        attentionNotifier.cancelInstance(inst)
     }
 
     /** Type text into the instance without submitting (watch voice → review on phone → Send). */
     fun routeType(inst: AgentInstance, text: String) {
         managerScope.launch { runCatching { routerForHost(inst.hostId)?.typeText(inst, text) } }
+        attentionNotifier.cancelInstance(inst)
     }
 
     /**

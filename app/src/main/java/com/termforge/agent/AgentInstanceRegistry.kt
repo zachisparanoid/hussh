@@ -1,5 +1,6 @@
 package com.termforge.agent
 
+import android.util.Log
 import com.termforge.transport.ExecChannel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -31,12 +32,12 @@ data class AgentInstance(
 }
 
 /**
- * Follows one host's `~/.termforge/attention.jsonl` over a long-lived exec channel and maintains the
- * set of live agent instances for that host. Seeds with `tf-route.sh list` + a tail of the feed, then
- * follows live appends. Invokes [onAttention] when an instance transitions into a "needs you" reason.
- *
- * The feed channel is read-only, so re-opening/closing it never risks the MINA write-cycle teardown
- * that bit the voice feature.
+ * Maintains the set of live Claude instances on one host. Two cooperating loops over SSH exec channels:
+ *  - [follow]: `tail -F` the feed for real-time reason transitions (+ fires attention).
+ *  - [syncLoop]: `tf-route.sh list` for *presence* — so EVERY running session shows even before it
+ *    fires an event — adding new panes, pruning dead ones, without clobbering an event-derived reason.
+ * Both retry until the freshly-authenticated session can open exec channels (it can't in the first
+ * instant after connect). Read-only channels, so re-opening never risks MINA's write-cycle teardown.
  */
 class AgentInstanceRegistry(
     private val hostId: Long,
@@ -61,26 +62,64 @@ class AgentInstanceRegistry(
     fun start() {
         if (running) return
         running = true
-        scope.launch { runCatching { seed() } }
+        Log.i(TAG, "registry start host=$hostId")
         scope.launch { follow() }
-        scope.launch { reconcileLoop() }
+        scope.launch { syncLoop() }
     }
 
-    /** One-shot: enumerate current panes + replay recent feed lines (no attention fired for these). */
-    private suspend fun seed() {
-        openExec("sh $ROUTE list 2>/dev/null; tail -n 50 $FEED 2>/dev/null")?.let { ch ->
-            ch.stdout.collect { line -> ingest(line, fireAttention = false) }
-        }
-    }
-
-    /** Long-lived: follow new feed appends; auto-reopen with backoff if the channel drops. */
+    /** Real-time feed events (reason transitions + attention). Auto-reopens; retries until ready. */
     private suspend fun follow() {
+        delay(SETTLE_MS) // the just-authenticated session can't open exec channels for a beat
         while (scope.isActive && running) {
             val ch = runCatching { openExec("touch $FEED 2>/dev/null; tail -n0 -F $FEED 2>/dev/null") }.getOrNull()
             feed = ch
-            if (ch == null) { delay(3000); continue }
+            Log.i(TAG, "follow host=$hostId channel=${ch != null}")
+            if (ch == null) { delay(RETRY_MS); continue }
             runCatching { ch.stdout.collect { line -> ingest(line, fireAttention = true) } }
-            delay(2000) // channel ended; loop re-opens
+            Log.i(TAG, "follow host=$hostId channel ended; reopening")
+            delay(RETRY_MS)
+        }
+    }
+
+    /**
+     * Presence: list live claude panes (add new, prune dead) every pass; on the first pass also replay
+     * recent feed reasons. List entries carry reason="running" and must NOT overwrite a real
+     * event-derived reason (perm/input/done) on an instance we already know about.
+     */
+    private suspend fun syncLoop() {
+        delay(SETTLE_MS)
+        var first = true
+        while (scope.isActive && running) {
+            val cmd = if (first) "sh $ROUTE list 2>/dev/null; tail -n 50 $FEED 2>/dev/null"
+            else "sh $ROUTE list 2>/dev/null"
+            val ch = runCatching { openExec(cmd) }.getOrNull()
+            if (ch == null) {
+                Log.i(TAG, "sync host=$hostId list channel failed; retrying")
+                delay(RETRY_MS)
+                continue
+            }
+            val live = mutableSetOf<String>()
+            runCatching {
+                ch.stdout.collect { line ->
+                    val e = parser.parse(line) ?: return@collect
+                    if (e.instance == null) return@collect
+                    if (e.reason == "running") {
+                        // A live pane (presence). Add if new; never clobber an existing reason.
+                        val inst = toInstance(e)
+                        live += inst.key
+                        if (inst.key !in _instances.value) _instances.value = _instances.value + (inst.key to inst)
+                    } else {
+                        // A recent feed event replayed on the first pass — set its reason, no ping.
+                        ingest(line, fireAttention = false)
+                    }
+                }
+            }
+            // The list succeeded (ch != null), so its membership is authoritative: prune anything not
+            // live (clears genuinely-dead panes, even down to zero).
+            _instances.value = _instances.value.filterKeys { it in live }
+            Log.i(TAG, "sync host=$hostId live=${live.size} kept=${_instances.value.size}")
+            first = false
+            delay(SYNC_MS)
         }
     }
 
@@ -91,22 +130,7 @@ class AgentInstanceRegistry(
         val prev = _instances.value[inst.key]
         _instances.value = _instances.value + (inst.key to inst)
         if (fireAttention && inst.reason in NEEDS && prev?.reason != inst.reason) onAttention(inst)
-    }
-
-    /** Periodically prune instances whose panes have died. */
-    private suspend fun reconcileLoop() {
-        while (scope.isActive && running) {
-            delay(30_000)
-            val live = mutableSetOf<String>()
-            runCatching {
-                openExec("sh $ROUTE list 2>/dev/null")?.let { ch ->
-                    ch.stdout.collect { line -> parser.parse(line)?.let { live += toInstance(it).key } }
-                }
-            }
-            if (live.isNotEmpty()) {
-                _instances.value = _instances.value.filterKeys { it in live }
-            }
-        }
+        Log.i(TAG, "ingest host=$hostId key=${inst.key} reason=${inst.reason} total=${_instances.value.size}")
     }
 
     fun stop() {
@@ -117,8 +141,12 @@ class AgentInstanceRegistry(
     }
 
     private companion object {
+        const val TAG = "TFAgent"
         const val ROUTE = "~/.termforge/tf-route.sh"
         const val FEED = "~/.termforge/attention.jsonl"
+        const val SETTLE_MS = 400L  // let the session settle before the first exec channel
+        const val RETRY_MS = 1500L  // re-open a failed/ended channel
+        const val SYNC_MS = 15_000L // presence refresh interval
         val NEEDS = setOf("perm", "input", "done")
     }
 }

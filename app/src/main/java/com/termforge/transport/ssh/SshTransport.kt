@@ -238,6 +238,7 @@ class SshTransport(
             runCatching {
                 val ch = sess.createExecChannel(command)
                 ch.open().verify(Duration.ofMillis(config.connectTimeoutMs))
+                android.util.Log.i("TFAgent", "openExec ok: ${command.take(50)}")
                 object : com.termforge.transport.ExecChannel {
                     // Lines from the command's stdout. For `tail -F` this never completes until the
                     // channel dies; for one-shot commands it completes at EOF.
@@ -261,6 +262,8 @@ class SshTransport(
                         runCatching { ch.close(false) }
                     }
                 }
+            }.onFailure {
+                android.util.Log.w("TFAgent", "openExec FAIL: ${command.take(50)} : ${it.message}")
             }.getOrNull()
         }
     }

@@ -109,6 +109,15 @@ private fun AgentDetail(
     scope: CoroutineScope,
     onBack: () -> Unit,
 ) {
+    var status by remember(inst.key) { mutableStateOf("") }
+    // Every action goes through here so the UI confirms delivery ("✓ Sent"). Without that confirmation
+    // it's unclear whether a voice reply went through, so people re-send → duplicates.
+    val act: (String, String) -> Unit = { action, text ->
+        status = if (text.isBlank()) "Sending…" else "Sending: \"$text\""
+        client.sendCommand(scope, action, inst.key, text) { ok ->
+            status = if (ok) (if (text.isBlank()) "✓ Sent" else "✓ Sent: \"$text\"") else "✗ Failed — tap again"
+        }
+    }
     // Tap-to-talk → system speech UI → transcription routed to the phone (typed, NOT submitted).
     val voiceLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -117,9 +126,7 @@ private fun AgentDetail(
             val text = result.data
                 ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
                 ?.firstOrNull()
-            if (!text.isNullOrBlank()) {
-                client.sendCommand(scope, WearActions.REPLY_TEXT, inst.key, text)
-            }
+            if (!text.isNullOrBlank()) act(WearActions.REPLY_TEXT, text)
         }
     }
 
@@ -132,6 +139,17 @@ private fun AgentDetail(
                     style = MaterialTheme.typography.caption1,
                     color = MaterialTheme.colors.primary,
                 )
+            }
+            if (status.isNotEmpty()) {
+                item {
+                    Text(
+                        status,
+                        style = MaterialTheme.typography.caption1,
+                        color = MaterialTheme.colors.secondary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
             if (inst.prompt.isNotEmpty()) {
                 item {
@@ -155,10 +173,7 @@ private fun AgentDetail(
                         },
                         label = { Text("🎤 Talk") },
                     )
-                    CompactChip(
-                        onClick = { client.sendCommand(scope, WearActions.SEND, inst.key) },
-                        label = { Text("Send") },
-                    )
+                    CompactChip(onClick = { act(WearActions.SEND, "") }, label = { Text("Send") })
                 }
             }
             if (inst.reason == "perm" && inst.routable) {
@@ -168,20 +183,17 @@ private fun AgentDetail(
                         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
                     ) {
                         CompactChip(
-                            onClick = { client.sendCommand(scope, WearActions.APPROVE, inst.key) },
+                            onClick = { act(WearActions.APPROVE, "") },
                             label = { Text("Approve") },
                             colors = ChipDefaults.primaryChipColors(),
                         )
-                        CompactChip(
-                            onClick = { client.sendCommand(scope, WearActions.DENY, inst.key) },
-                            label = { Text("Deny") },
-                        )
+                        CompactChip(onClick = { act(WearActions.DENY, "") }, label = { Text("Deny") })
                     }
                 }
             }
             item {
                 CompactChip(
-                    onClick = { client.sendCommand(scope, WearActions.FOCUS, inst.key); onBack() },
+                    onClick = { act(WearActions.FOCUS, ""); onBack() },
                     label = { Text("Open on phone") },
                 )
             }
