@@ -13,16 +13,33 @@ data class WireInstance(
     val routable: Boolean = false,
 )
 
+/** A host the watch cares about + its connection state (so the watch can reconnect it). */
 @Serializable
-data class WireInstanceList(val instances: List<WireInstance> = emptyList())
+data class WatchHost(
+    val hostId: Long,
+    val name: String,
+    val status: String, // connected | connecting | disconnected
+)
+
+/** Everything the phone pushes: the relevant hosts (+ status) and the live instances. */
+@Serializable
+data class WatchState(
+    val hosts: List<WatchHost> = emptyList(),
+    val instances: List<WireInstance> = emptyList(),
+)
 
 /** A command from the watch to the phone (mirror of the phone's parser). */
 @Serializable
-data class WearCommand(val action: String, val instanceKey: String, val text: String = "")
+data class WearCommand(
+    val action: String,
+    val instanceKey: String = "",
+    val text: String = "",
+    val hostId: Long = -1,
+)
 
 /** Data Layer paths, shared phone↔watch. */
 object WearPaths {
-    const val AGENTS = "/tf/agents"   // phone → watch: the fleet (DataItem)
+    const val AGENTS = "/tf/agents"   // phone → watch: WatchState (DataItem)
     const val CMD = "/tf/cmd"         // watch → phone: a command (Message)
 }
 
@@ -33,4 +50,5 @@ object WearActions {
     const val SEND = "send"           // commit Enter on the pane
     const val REPLY_TEXT = "replyText" // type transcribed text (no Enter — review on phone)
     const val FOCUS = "focus"         // jump the phone's terminal to this instance
+    const val RECONNECT = "reconnect"  // phone re-opens SSH to a host (host-level)
 }

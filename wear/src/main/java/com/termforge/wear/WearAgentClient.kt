@@ -29,6 +29,9 @@ class WearAgentClient(context: Context) {
     private val _instances = MutableStateFlow<List<WireInstance>>(emptyList())
     val instances = _instances.asStateFlow()
 
+    private val _hosts = MutableStateFlow<List<WatchHost>>(emptyList())
+    val hosts = _hosts.asStateFlow()
+
     private val listener = DataClient.OnDataChangedListener { events ->
         events.forEach { e ->
             if (e.type == DataEvent.TYPE_CHANGED && e.dataItem.uri.path == WearPaths.AGENTS) {
@@ -59,14 +62,15 @@ class WearAgentClient(context: Context) {
     fun sendCommand(
         scope: CoroutineScope,
         action: String,
-        instanceKey: String,
+        instanceKey: String = "",
         text: String = "",
+        hostId: Long = -1,
         onResult: (Boolean) -> Unit = {},
     ) {
         scope.launch {
             val ok = runCatching {
                 val payload = json.encodeToString(
-                    WearCommand.serializer(), WearCommand(action, instanceKey, text),
+                    WearCommand.serializer(), WearCommand(action, instanceKey, text, hostId),
                 ).toByteArray(Charsets.UTF_8)
                 val nodes = nodeClient.connectedNodes.await()
                 if (nodes.isEmpty()) {
@@ -84,7 +88,9 @@ class WearAgentClient(context: Context) {
         val s = DataMapItem.fromDataItem(item).dataMap.getString("json") ?: return
         FleetStore.save(appContext, s) // keep the Tile's data fresh while the app is open too
         runCatching {
-            _instances.value = json.decodeFromString(WireInstanceList.serializer(), s).instances
+            val state = json.decodeFromString(WatchState.serializer(), s)
+            _instances.value = state.instances
+            _hosts.value = state.hosts
         }
     }
 }

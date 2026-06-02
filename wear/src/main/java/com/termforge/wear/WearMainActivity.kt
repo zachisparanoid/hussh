@@ -9,7 +9,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,9 +38,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 
 /**
- * The watch app. Lists the phone's Claude fleet (pushed over the Data Layer), lets you read a
- * session's latest output, and reply by voice — the transcription is sent to the phone and typed
- * into that session WITHOUT submitting, so you can review/correct on the phone before it sends.
+ * The watch app. Status-aware: if a watch-host is down it offers **Reconnect** (the phone re-opens
+ * SSH and the still-running tmux claudes return); when connected it lists the sessions to read and
+ * reply to by voice. Voice replies are typed into Claude WITHOUT submitting (review on phone), and
+ * every action confirms delivery so you never re-send blindly.
  */
 class WearMainActivity : ComponentActivity() {
     private val client by lazy { WearAgentClient(applicationContext) }
@@ -60,13 +60,14 @@ class WearMainActivity : ComponentActivity() {
 @Composable
 private fun WearApp(client: WearAgentClient, scope: CoroutineScope) {
     val instances by client.instances.collectAsState()
+    val hosts by client.hosts.collectAsState()
     var selectedKey by remember { mutableStateOf<String?>(null) }
     val selected = instances.firstOrNull { it.key == selectedKey }
 
     MaterialTheme {
         Scaffold(timeText = { if (selected == null) TimeText() }) {
             if (selected == null) {
-                AgentList(instances, onSelect = { selectedKey = it.key })
+                Home(instances, hosts, scope, client, onSelect = { selectedKey = it.key })
             } else {
                 AgentDetail(selected, client, scope, onBack = { selectedKey = null })
             }
@@ -75,28 +76,79 @@ private fun WearApp(client: WearAgentClient, scope: CoroutineScope) {
 }
 
 @Composable
-private fun AgentList(instances: List<WireInstance>, onSelect: (WireInstance) -> Unit) {
+private fun Home(
+    instances: List<WireInstance>,
+    hosts: List<WatchHost>,
+    scope: CoroutineScope,
+    client: WearAgentClient,
+    onSelect: (WireInstance) -> Unit,
+) {
+    var banner by remember { mutableStateOf("") }
+    val down = hosts.filter { it.status != "connected" }
+
     ScalingLazyColumn(Modifier.fillMaxSize()) {
         item { ListHeader { Text("Agents") } }
-        if (instances.isEmpty()) {
+
+        if (banner.isNotEmpty()) {
             item {
                 Text(
-                    "No active sessions.\nConnect on your phone.",
+                    banner,
+                    style = MaterialTheme.typography.caption1,
+                    color = MaterialTheme.colors.secondary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+
+        // Hosts that aren't up: a reconnect button (or a "connecting…" placeholder).
+        down.forEach { host ->
+            item {
+                if (host.status == "connecting") {
+                    Chip(
+                        onClick = {},
+                        enabled = false,
+                        label = { Text(host.name, maxLines = 1) },
+                        secondaryLabel = { Text("connecting…") },
+                        colors = ChipDefaults.secondaryChipColors(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    Chip(
+                        onClick = {
+                            banner = "Reconnecting ${host.name}…"
+                            client.sendCommand(scope, WearActions.RECONNECT, hostId = host.hostId) { ok ->
+                                if (!ok) banner = "✗ Reconnect failed"
+                            }
+                        },
+                        label = { Text("⟳ Reconnect", maxLines = 1) },
+                        secondaryLabel = { Text("${host.name} offline", maxLines = 1) },
+                        colors = ChipDefaults.primaryChipColors(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+
+        if (instances.isEmpty() && down.isEmpty()) {
+            item {
+                Text(
+                    "No agents.\nEnable a session on your phone.",
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.caption2,
                 )
             }
-        } else {
-            instances.forEach { inst ->
-                item {
-                    Chip(
-                        onClick = { onSelect(inst) },
-                        label = { Text(inst.session, maxLines = 1) },
-                        secondaryLabel = { Text(reasonPhrase(inst.reason), maxLines = 1) },
-                        colors = ChipDefaults.secondaryChipColors(),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+        }
+
+        instances.forEach { inst ->
+            item {
+                Chip(
+                    onClick = { onSelect(inst) },
+                    label = { Text(inst.session, maxLines = 1) },
+                    secondaryLabel = { Text(reasonPhrase(inst.reason), maxLines = 1) },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
@@ -118,7 +170,6 @@ private fun AgentDetail(
             status = if (ok) (if (text.isBlank()) "✓ Sent" else "✓ Sent: \"$text\"") else "✗ Failed — tap again"
         }
     }
-    // Tap-to-talk → system speech UI → transcription routed to the phone (typed, NOT submitted).
     val voiceLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -130,75 +181,70 @@ private fun AgentDetail(
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
-        ScalingLazyColumn(Modifier.fillMaxSize()) {
-            item { ListHeader { Text(inst.session, maxLines = 1) } }
+    ScalingLazyColumn(Modifier.fillMaxSize()) {
+        item { ListHeader { Text(inst.session, maxLines = 1) } }
+        item {
+            Text(
+                reasonPhrase(inst.reason),
+                style = MaterialTheme.typography.caption1,
+                color = MaterialTheme.colors.primary,
+            )
+        }
+        if (status.isNotEmpty()) {
             item {
                 Text(
-                    reasonPhrase(inst.reason),
+                    status,
                     style = MaterialTheme.typography.caption1,
-                    color = MaterialTheme.colors.primary,
+                    color = MaterialTheme.colors.secondary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
-            if (status.isNotEmpty()) {
-                item {
-                    Text(
-                        status,
-                        style = MaterialTheme.typography.caption1,
-                        color = MaterialTheme.colors.secondary,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+        }
+        if (inst.prompt.isNotEmpty()) {
+            item { Text(inst.prompt.joinToString("\n"), style = MaterialTheme.typography.caption2) }
+        }
+        item {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            ) {
+                CompactChip(
+                    onClick = {
+                        voiceLauncher.launch(
+                            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(
+                                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                            ),
+                        )
+                    },
+                    label = { Text("🎤 Talk") },
+                )
+                CompactChip(onClick = { act(WearActions.SEND, "") }, label = { Text("Send") })
             }
-            if (inst.prompt.isNotEmpty()) {
-                item {
-                    Text(inst.prompt.joinToString("\n"), style = MaterialTheme.typography.caption2)
-                }
-            }
-            // Action bar (kept in the list so it scrolls into reach on a small screen).
+        }
+        if (inst.reason == "perm" && inst.routable) {
             item {
                 Row(
-                    Modifier.fillMaxWidth().padding(top = 6.dp),
+                    Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
                 ) {
                     CompactChip(
-                        onClick = {
-                            voiceLauncher.launch(
-                                Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(
-                                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
-                                ),
-                            )
-                        },
-                        label = { Text("🎤 Talk") },
+                        onClick = { act(WearActions.APPROVE, "") },
+                        label = { Text("Approve") },
+                        colors = ChipDefaults.primaryChipColors(),
                     )
-                    CompactChip(onClick = { act(WearActions.SEND, "") }, label = { Text("Send") })
+                    CompactChip(onClick = { act(WearActions.DENY, "") }, label = { Text("Deny") })
                 }
             }
-            if (inst.reason == "perm" && inst.routable) {
-                item {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-                    ) {
-                        CompactChip(
-                            onClick = { act(WearActions.APPROVE, "") },
-                            label = { Text("Approve") },
-                            colors = ChipDefaults.primaryChipColors(),
-                        )
-                        CompactChip(onClick = { act(WearActions.DENY, "") }, label = { Text("Deny") })
-                    }
-                }
-            }
-            item {
-                CompactChip(
-                    onClick = { act(WearActions.FOCUS, ""); onBack() },
-                    label = { Text("Open on phone") },
-                )
-            }
-            item { CompactChip(onClick = onBack, label = { Text("← Back") }) }
         }
+        item {
+            CompactChip(
+                onClick = { act(WearActions.FOCUS, ""); onBack() },
+                label = { Text("Open on phone") },
+            )
+        }
+        item { CompactChip(onClick = onBack, label = { Text("← Back") }) }
     }
 }
 

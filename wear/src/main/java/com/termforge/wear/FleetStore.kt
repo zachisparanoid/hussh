@@ -18,10 +18,9 @@ object FleetStore {
             .putString(KEY_JSON, fleetJson).apply()
     }
 
-    fun load(context: Context): List<WireInstance> {
+    fun load(context: Context): WatchState {
         val s = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_JSON, null)
-            ?: return emptyList()
-        return runCatching { json.decodeFromString(WireInstanceList.serializer(), s).instances }
-            .getOrDefault(emptyList())
+            ?: return WatchState()
+        return runCatching { json.decodeFromString(WatchState.serializer(), s) }.getOrDefault(WatchState())
     }
 }

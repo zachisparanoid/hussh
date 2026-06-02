@@ -38,6 +38,11 @@ class WearCommandService : WearableListenerService() {
         val sm = EntryPointAccessors
             .fromApplication(applicationContext, Entry::class.java)
             .sessionManager()
+        // Reconnect is host-level (no instance — that's the whole point: the connection is down).
+        if (cmd.action == "reconnect") {
+            if (cmd.hostId >= 0) sm.reconnectHost(cmd.hostId)
+            return
+        }
         val inst = sm.instanceByKey(cmd.instanceKey) ?: return
         when (cmd.action) {
             "approve" -> sm.routeApprove(inst)

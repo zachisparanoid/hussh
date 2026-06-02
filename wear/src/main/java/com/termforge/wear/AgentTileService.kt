@@ -40,21 +40,25 @@ class AgentTileService : TileService() {
     }
 
     private fun layout(): LayoutElementBuilders.LayoutElement {
-        val fleet = FleetStore.load(this)
+        val state = FleetStore.load(this)
+        val fleet = state.instances
+        val offline = state.hosts.filter { it.status == "disconnected" }
         val need = fleet.filter { it.reason == "perm" || it.reason == "input" || it.reason == "done" }
         val top = fleet.minByOrNull { priority(it.reason) }
 
         val headline = when {
+            offline.isNotEmpty() -> "Offline"
             fleet.isEmpty() -> "No agents"
             need.isNotEmpty() -> "${need.size} need you"
             else -> "${fleet.size} running"
         }
         val sub = when {
+            offline.isNotEmpty() -> "${offline.first().name} · tap to reconnect"
             fleet.isEmpty() -> "Open to connect"
             top != null -> "${top.session} · ${reasonPhrase(top.reason)}"
             else -> "Tap to open"
         }
-        val accent = if (need.isNotEmpty()) COLOR_WARN else COLOR_OK
+        val accent = if (offline.isNotEmpty() || need.isNotEmpty()) COLOR_WARN else COLOR_OK
 
         return LayoutElementBuilders.Column.Builder()
             .setWidth(DimensionBuilders.expand())

@@ -7,6 +7,8 @@ import android.os.SystemClock
 import com.termforge.agent.AgentInstance
 import com.termforge.agent.AgentInstanceRegistry
 import com.termforge.agent.AgentRouter
+import com.termforge.agent.WatchHost
+import com.termforge.agent.WatchState
 import com.termforge.agent.toWire
 import com.termforge.wearlink.WearLinkPublisher
 import com.termforge.data.db.ForwardType
@@ -86,6 +88,7 @@ class SessionManager @Inject constructor(
 
     /** One feed-follower per connection; discovers Claude instances and fires per-instance attention. */
     private val registries = ConcurrentHashMap<String, AgentInstanceRegistry>()
+    private val hostNameCache = ConcurrentHashMap<Long, String>()
     private val _instances = MutableStateFlow<List<AgentInstance>>(emptyList())
     /** Every live agent instance across all connected hosts (the Agents dashboard / watch source). */
     val instances = _instances.asStateFlow()
@@ -195,6 +198,8 @@ class SessionManager @Inject constructor(
         connection.start()
         android.util.Log.i("TFAgent", "startConnection sid=$sessionId host=$hostId enabled=$agentAttentionEnabled")
         if (agentAttentionEnabled) startRegistry(sessionId, hostId, connection)
+        hostNameCache[hostId] = host.nickname.ifBlank { "${host.username}@${host.address}" }
+        publishToWatch() // reflect "connecting" on the watch promptly
         hostRepo.touchLastConnected(hostId, System.currentTimeMillis())
         startService()
     }
@@ -278,9 +283,45 @@ class SessionManager @Inject constructor(
             .flatMap { it.instances.value.values }
             .sortedBy { (it.sessionName ?: "") + "/" + (it.windowName ?: "") }
         android.util.Log.i("TFAgent", "merged instances=${_instances.value.size} registries=${registries.size}")
-        // Mirror only the watch-enabled sessions to a paired watch (no-op if none paired/enabled).
-        val wire = _instances.value.filter { it.enableKey in watchEnabledSessions }.map { it.toWire() }
-        managerScope.launch { runCatching { wearLinkPublisher.publish(wire) } }
+        publishToWatch()
+    }
+
+    /**
+     * Push the watch roster: every host that has a watch-enabled session (+ its current connection
+     * status) and the watch-enabled instances. The host list is derived from the persisted watch-enable
+     * keys, so it survives a connection dropping — letting the watch reconnect a host with zero live
+     * sessions.
+     */
+    private fun publishToWatch() {
+        managerScope.launch {
+            runCatching {
+                val hostIds = watchEnabledSessions.mapNotNull { it.substringBefore(":").toLongOrNull() }.toSet()
+                val hosts = hostIds.map { hid ->
+                    val conns = _sessions.value.filter { it.hostId == hid }
+                    val status = when {
+                        conns.any { it.status.value == SessionStatus.CONNECTED } -> "connected"
+                        conns.any { it.status.value == SessionStatus.CONNECTING || it.status.value == SessionStatus.RECONNECTING } -> "connecting"
+                        else -> "disconnected"
+                    }
+                    WatchHost(hid, hostName(hid), status)
+                }
+                val wire = _instances.value.filter { it.enableKey in watchEnabledSessions }.map { it.toWire() }
+                wearLinkPublisher.publish(WatchState(hosts, wire))
+            }
+        }
+    }
+
+    private suspend fun hostName(hostId: Long): String = hostNameCache[hostId]
+        ?: (hostRepo.getById(hostId)?.let { it.nickname.ifBlank { "${it.username}@${it.address}" } } ?: "host $hostId")
+            .also { hostNameCache[hostId] = it }
+
+    /** Re-establish the phone's SSH connection to a host so its (still-running) tmux claudes return. */
+    fun reconnectHost(hostId: Long) {
+        managerScope.launch {
+            if (_sessions.value.any { it.hostId == hostId && it.isLive }) return@launch
+            runCatching { connect(hostId) }
+            publishToWatch()
+        }
     }
 
     /** A specific Claude instance saw a needs-you transition. Debounced per instance. */

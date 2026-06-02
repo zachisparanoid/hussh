@@ -4,8 +4,7 @@ import android.content.Context
 import android.os.SystemClock
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
-import com.termforge.agent.WireInstance
-import com.termforge.agent.WireInstanceList
+import com.termforge.agent.WatchState
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.tasks.await
 import kotlinx.serialization.encodeToString
@@ -20,9 +19,9 @@ class WearLinkPublisher @Inject constructor(
 ) {
     private val json = Json { encodeDefaults = true }
 
-    suspend fun publish(instances: List<WireInstance>) {
+    suspend fun publish(state: WatchState) {
         runCatching {
-            val payload = json.encodeToString(WireInstanceList(instances))
+            val payload = json.encodeToString(state)
             val req = PutDataMapRequest.create(PATH).apply {
                 dataMap.putString("json", payload)
                 // A changing timestamp makes the DataItem differ even when the list is unchanged,
