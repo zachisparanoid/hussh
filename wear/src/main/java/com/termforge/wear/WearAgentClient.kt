@@ -82,6 +82,7 @@ class WearAgentClient(context: Context) {
 
     private fun parse(item: DataItem) {
         val s = DataMapItem.fromDataItem(item).dataMap.getString("json") ?: return
+        FleetStore.save(appContext, s) // keep the Tile's data fresh while the app is open too
         runCatching {
             _instances.value = json.decodeFromString(WireInstanceList.serializer(), s).instances
         }
