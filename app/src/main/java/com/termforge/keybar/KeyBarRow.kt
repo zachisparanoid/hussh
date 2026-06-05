@@ -8,8 +8,10 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
@@ -29,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.ceil
 
 private const val LATCH_MS = 350L
 private const val INITIAL_REPEAT_DELAY_MS = 400L
@@ -64,16 +67,40 @@ fun KeyBarRow(
     appCursor: () -> Boolean,
     backspaceByte: () -> Byte,
     onSend: (ByteArray) -> Unit,
+    rows: Int = 1,
     modifier: Modifier = Modifier,
 ) {
-    // Self-sizes to one row (button height + content padding). The caller supplies background and
-    // insets, so the colored bar is exactly one row tall.
+    val n = rows.coerceIn(1, 3)
+    if (n <= 1) {
+        SingleKeyRow(layout.buttons, state, appCursor, backspaceByte, onSend, modifier)
+    } else {
+        // Split the layout's keys across n stacked rows so more are visible without scrolling.
+        val perRow = ceil(layout.buttons.size / n.toFloat()).toInt().coerceAtLeast(1)
+        Column(modifier) {
+            layout.buttons.chunked(perRow).forEach { rowButtons ->
+                SingleKeyRow(rowButtons, state, appCursor, backspaceByte, onSend, Modifier.fillMaxWidth())
+            }
+        }
+    }
+}
+
+/** One horizontally-scrollable row of keys. Self-sizes to one button-height; the caller owns the
+ *  background and insets. */
+@Composable
+private fun SingleKeyRow(
+    buttons: List<KeyBarButtonDef>,
+    state: KeyBarState,
+    appCursor: () -> Boolean,
+    backspaceByte: () -> Byte,
+    onSend: (ByteArray) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     LazyRow(
         modifier = modifier,
         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        items(layout.buttons, key = { it.id }) { button ->
+        items(buttons, key = { it.id }) { button ->
             KeyBarButton(button, state, appCursor, backspaceByte, onSend)
         }
     }

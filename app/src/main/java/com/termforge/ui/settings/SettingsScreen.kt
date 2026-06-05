@@ -82,6 +82,7 @@ fun SettingsScreen(navController: NavHostController, viewModel: SettingsViewMode
             OutlinedButton(onClick = { navController.navigate(Routes.KeyBarEditor.build("GLOBAL")) }, Modifier.fillMaxWidth()) { Text("Edit global key bar") }
             OutlinedButton(onClick = { viewModel.resetKeyBar() }, Modifier.fillMaxWidth()) { Text("Reset key bar to default") }
             ToggleRow("Show key bar when keyboard hidden", s.keyBarVisibleWhenKeyboardHidden, viewModel::setKeyBarVisible)
+            EnumDropdown("Rows of buttons", s.keyBarRows, listOf(1, 2, 3), { "$it" }, viewModel::setKeyBarRows, Modifier.fillMaxWidth())
 
             Section("Background & security")
             NumberField("Default keep-alive (s)", s.defaultKeepAliveSec, viewModel::setKeepAlive)

@@ -32,6 +32,8 @@ data class AppSettings(
     val scrollbackLines: Int = 10_000,
     val defaultKeepAliveSec: Int = 60,
     val keyBarVisibleWhenKeyboardHidden: Boolean = true,
+    /** How many rows of buttons the key bar shows at once (1–3); the layout's keys split across them. */
+    val keyBarRows: Int = 1,
     val defaultBackspace: BackspaceMode = BackspaceMode.DEL,
     val promptedBatteryOptimization: Boolean = false,
     val voiceStreamEnabled: Boolean = false,
@@ -79,6 +81,7 @@ class AppPreferences @Inject constructor(
         val SCROLLBACK = intPreferencesKey("scrollback_lines")
         val KEEPALIVE = intPreferencesKey("default_keepalive_sec")
         val KEYBAR_VISIBLE = booleanPreferencesKey("keybar_visible_no_keyboard")
+        val KEYBAR_ROWS = intPreferencesKey("keybar_rows")
         val BACKSPACE = stringPreferencesKey("default_backspace")
         val BATTERY_PROMPTED = booleanPreferencesKey("battery_prompted")
         val VOICE_STREAM = booleanPreferencesKey("voice_stream_enabled")
@@ -104,6 +107,7 @@ class AppPreferences @Inject constructor(
             scrollbackLines = p[Keys.SCROLLBACK] ?: 10_000,
             defaultKeepAliveSec = p[Keys.KEEPALIVE] ?: 60,
             keyBarVisibleWhenKeyboardHidden = p[Keys.KEYBAR_VISIBLE] ?: true,
+            keyBarRows = (p[Keys.KEYBAR_ROWS] ?: 1).coerceIn(1, 3),
             defaultBackspace = p[Keys.BACKSPACE]?.let { runCatching { BackspaceMode.valueOf(it) }.getOrNull() } ?: BackspaceMode.DEL,
             promptedBatteryOptimization = p[Keys.BATTERY_PROMPTED] ?: false,
             voiceStreamEnabled = p[Keys.VOICE_STREAM] ?: false,
@@ -128,6 +132,7 @@ class AppPreferences @Inject constructor(
     suspend fun setScrollbackLines(lines: Int) = edit { it[Keys.SCROLLBACK] = lines.coerceIn(500, 100_000) }
     suspend fun setDefaultKeepAlive(sec: Int) = edit { it[Keys.KEEPALIVE] = sec.coerceIn(0, 3600) }
     suspend fun setKeyBarVisibleWhenKeyboardHidden(v: Boolean) = edit { it[Keys.KEYBAR_VISIBLE] = v }
+    suspend fun setKeyBarRows(n: Int) = edit { it[Keys.KEYBAR_ROWS] = n.coerceIn(1, 3) }
     suspend fun setDefaultBackspace(mode: BackspaceMode) = edit { it[Keys.BACKSPACE] = mode.name }
     suspend fun setBatteryPrompted(v: Boolean) = edit { it[Keys.BATTERY_PROMPTED] = v }
     suspend fun setVoiceStream(v: Boolean) = edit { it[Keys.VOICE_STREAM] = v }

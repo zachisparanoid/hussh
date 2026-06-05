@@ -47,11 +47,14 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicNone
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.KeyboardHide
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.TextDecrease
 import androidx.compose.material.icons.filled.TextIncrease
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -191,6 +194,9 @@ fun TerminalScreen(navController: NavHostController, viewModel: TerminalViewMode
                     }
                 },
                 actions = {
+                    // Keyboard toggle + paste are the most-used → direct icons. Everything else moves
+                    // into an overflow menu so the actions never crowd the back button / title (8 icons
+                    // used to overlap on narrow widths).
                     IconButton(onClick = {
                         inputView?.let { if (imeVisible) hideKeyboard(it) else showKeyboard(it) }
                     }) {
@@ -199,37 +205,51 @@ fun TerminalScreen(navController: NavHostController, viewModel: TerminalViewMode
                             if (imeVisible) "Hide keyboard" else "Show keyboard",
                         )
                     }
-                    // Toggle raw ⇄ glide input. Glide mode routes the keyboard through a hidden
-                    // composing field so swipe typing works; raw mode sends keys straight to the shell.
-                    IconButton(onClick = {
-                        val turningOn = !glideEnabled
-                        viewModel.setGlideTyping(turningOn)
-                        if (!turningOn) terminalView?.let { showKeyboard(it) }
-                    }) {
-                        Icon(
-                            Icons.Default.Gesture,
-                            if (glideEnabled) "Swipe typing on (tap for raw)" else "Raw typing (tap for swipe)",
-                            tint = if (glideEnabled) MaterialTheme.colorScheme.primary
-                            else androidx.compose.ui.graphics.Color.Unspecified,
-                        )
-                    }
                     IconButton(onClick = {
                         clipboard.getText()?.text?.let { viewModel.sendText(it) }
                     }) { Icon(Icons.Default.ContentPaste, "Paste") }
-                    IconButton(onClick = { viewModel.fontSizeController.decrease() }) {
-                        Icon(Icons.Default.TextDecrease, "Smaller font")
-                    }
-                    IconButton(onClick = { viewModel.fontSizeController.increase() }) {
-                        Icon(Icons.Default.TextIncrease, "Larger font")
-                    }
-                    IconButton(onClick = { snippetsOpen = true }) { Icon(Icons.Default.Code, "Snippets") }
-                    connection?.let { conn ->
-                        IconButton(onClick = { navController.navigate(Routes.Sftp.build(conn.hostId)) }) {
-                            Icon(Icons.Default.Folder, "Files")
+                    var menuOpen by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, "More") }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text(if (glideEnabled) "Swipe typing: on" else "Swipe typing: off") },
+                                leadingIcon = { Icon(Icons.Default.Gesture, null) },
+                                onClick = {
+                                    menuOpen = false
+                                    val turningOn = !glideEnabled
+                                    viewModel.setGlideTyping(turningOn)
+                                    if (!turningOn) terminalView?.let { showKeyboard(it) }
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Smaller font") },
+                                leadingIcon = { Icon(Icons.Default.TextDecrease, null) },
+                                onClick = { menuOpen = false; viewModel.fontSizeController.decrease() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Larger font") },
+                                leadingIcon = { Icon(Icons.Default.TextIncrease, null) },
+                                onClick = { menuOpen = false; viewModel.fontSizeController.increase() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Snippets") },
+                                leadingIcon = { Icon(Icons.Default.Code, null) },
+                                onClick = { menuOpen = false; snippetsOpen = true },
+                            )
+                            connection?.let { conn ->
+                                DropdownMenuItem(
+                                    text = { Text("Files") },
+                                    leadingIcon = { Icon(Icons.Default.Folder, null) },
+                                    onClick = { menuOpen = false; navController.navigate(Routes.Sftp.build(conn.hostId)) },
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Disconnect") },
+                                leadingIcon = { Icon(Icons.Default.PowerSettingsNew, null) },
+                                onClick = { menuOpen = false; viewModel.disconnect(); navController.navigateUp() },
+                            )
                         }
-                    }
-                    IconButton(onClick = { viewModel.disconnect(); navController.navigateUp() }) {
-                        Icon(Icons.Default.PowerSettingsNew, "Disconnect")
                     }
                 },
             )
@@ -308,6 +328,7 @@ fun TerminalScreen(navController: NavHostController, viewModel: TerminalViewMode
                         appCursor = { viewModel.appCursorMode() },
                         backspaceByte = { backspaceByte },
                         onSend = { viewModel.send(it) },
+                        rows = settings.keyBarRows,
                         modifier = Modifier.weight(1f),
                     )
                 }

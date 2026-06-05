@@ -33,6 +33,7 @@ class SettingsViewModel @Inject constructor(
     fun setScrollback(n: Int) = viewModelScope.launch { prefs.setScrollbackLines(n) }
     fun setKeepAlive(n: Int) = viewModelScope.launch { prefs.setDefaultKeepAlive(n) }
     fun setKeyBarVisible(v: Boolean) = viewModelScope.launch { prefs.setKeyBarVisibleWhenKeyboardHidden(v) }
+    fun setKeyBarRows(n: Int) = viewModelScope.launch { prefs.setKeyBarRows(n) }
     fun setBackspace(m: BackspaceMode) = viewModelScope.launch { prefs.setDefaultBackspace(m) }
     fun resetKeyBar() = viewModelScope.launch { keyBarRepo.resetGlobalToDefault() }
     fun setVoiceStream(v: Boolean) = viewModelScope.launch { prefs.setVoiceStream(v) }
