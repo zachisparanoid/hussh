@@ -208,20 +208,23 @@ fun TerminalScreen(navController: NavHostController, viewModel: TerminalViewMode
                     IconButton(onClick = {
                         clipboard.getText()?.text?.let { viewModel.sendText(it) }
                     }) { Icon(Icons.Default.ContentPaste, "Paste") }
+                    // Swipe-typing toggle: flipped often enough to keep on the bar (not in the menu).
+                    IconButton(onClick = {
+                        val turningOn = !glideEnabled
+                        viewModel.setGlideTyping(turningOn)
+                        if (!turningOn) terminalView?.let { showKeyboard(it) }
+                    }) {
+                        Icon(
+                            Icons.Default.Gesture,
+                            if (glideEnabled) "Swipe typing on (tap for raw)" else "Raw typing (tap for swipe)",
+                            tint = if (glideEnabled) MaterialTheme.colorScheme.primary
+                            else androidx.compose.ui.graphics.Color.Unspecified,
+                        )
+                    }
                     var menuOpen by remember { mutableStateOf(false) }
                     Box {
                         IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, "More") }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            DropdownMenuItem(
-                                text = { Text(if (glideEnabled) "Swipe typing: on" else "Swipe typing: off") },
-                                leadingIcon = { Icon(Icons.Default.Gesture, null) },
-                                onClick = {
-                                    menuOpen = false
-                                    val turningOn = !glideEnabled
-                                    viewModel.setGlideTyping(turningOn)
-                                    if (!turningOn) terminalView?.let { showKeyboard(it) }
-                                },
-                            )
                             DropdownMenuItem(
                                 text = { Text("Smaller font") },
                                 leadingIcon = { Icon(Icons.Default.TextDecrease, null) },
