@@ -34,6 +34,10 @@ data class AppSettings(
     val keyBarVisibleWhenKeyboardHidden: Boolean = true,
     /** How many rows of buttons the key bar shows at once (1–3); the layout's keys split across them. */
     val keyBarRows: Int = 1,
+    /** Haptic feedback when key-bar buttons fire / modifiers toggle, with configurable length+intensity. */
+    val keyBarHapticsEnabled: Boolean = true,
+    val keyBarHapticMs: Int = 18,
+    val keyBarHapticAmplitude: Int = 160,
     val defaultBackspace: BackspaceMode = BackspaceMode.DEL,
     val promptedBatteryOptimization: Boolean = false,
     val voiceStreamEnabled: Boolean = false,
@@ -82,6 +86,9 @@ class AppPreferences @Inject constructor(
         val KEEPALIVE = intPreferencesKey("default_keepalive_sec")
         val KEYBAR_VISIBLE = booleanPreferencesKey("keybar_visible_no_keyboard")
         val KEYBAR_ROWS = intPreferencesKey("keybar_rows")
+        val KEYBAR_HAPTICS = booleanPreferencesKey("keybar_haptics")
+        val KEYBAR_HAPTIC_MS = intPreferencesKey("keybar_haptic_ms")
+        val KEYBAR_HAPTIC_AMP = intPreferencesKey("keybar_haptic_amp")
         val BACKSPACE = stringPreferencesKey("default_backspace")
         val BATTERY_PROMPTED = booleanPreferencesKey("battery_prompted")
         val VOICE_STREAM = booleanPreferencesKey("voice_stream_enabled")
@@ -108,6 +115,9 @@ class AppPreferences @Inject constructor(
             defaultKeepAliveSec = p[Keys.KEEPALIVE] ?: 60,
             keyBarVisibleWhenKeyboardHidden = p[Keys.KEYBAR_VISIBLE] ?: true,
             keyBarRows = (p[Keys.KEYBAR_ROWS] ?: 1).coerceIn(1, 3),
+            keyBarHapticsEnabled = p[Keys.KEYBAR_HAPTICS] ?: true,
+            keyBarHapticMs = (p[Keys.KEYBAR_HAPTIC_MS] ?: 18).coerceIn(1, 60),
+            keyBarHapticAmplitude = (p[Keys.KEYBAR_HAPTIC_AMP] ?: 160).coerceIn(1, 255),
             defaultBackspace = p[Keys.BACKSPACE]?.let { runCatching { BackspaceMode.valueOf(it) }.getOrNull() } ?: BackspaceMode.DEL,
             promptedBatteryOptimization = p[Keys.BATTERY_PROMPTED] ?: false,
             voiceStreamEnabled = p[Keys.VOICE_STREAM] ?: false,
@@ -133,6 +143,9 @@ class AppPreferences @Inject constructor(
     suspend fun setDefaultKeepAlive(sec: Int) = edit { it[Keys.KEEPALIVE] = sec.coerceIn(0, 3600) }
     suspend fun setKeyBarVisibleWhenKeyboardHidden(v: Boolean) = edit { it[Keys.KEYBAR_VISIBLE] = v }
     suspend fun setKeyBarRows(n: Int) = edit { it[Keys.KEYBAR_ROWS] = n.coerceIn(1, 3) }
+    suspend fun setKeyBarHaptics(v: Boolean) = edit { it[Keys.KEYBAR_HAPTICS] = v }
+    suspend fun setKeyBarHapticMs(n: Int) = edit { it[Keys.KEYBAR_HAPTIC_MS] = n.coerceIn(1, 60) }
+    suspend fun setKeyBarHapticAmplitude(n: Int) = edit { it[Keys.KEYBAR_HAPTIC_AMP] = n.coerceIn(1, 255) }
     suspend fun setDefaultBackspace(mode: BackspaceMode) = edit { it[Keys.BACKSPACE] = mode.name }
     suspend fun setBatteryPrompted(v: Boolean) = edit { it[Keys.BATTERY_PROMPTED] = v }
     suspend fun setVoiceStream(v: Boolean) = edit { it[Keys.VOICE_STREAM] = v }

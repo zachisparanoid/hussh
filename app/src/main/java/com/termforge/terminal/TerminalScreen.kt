@@ -332,6 +332,11 @@ fun TerminalScreen(navController: NavHostController, viewModel: TerminalViewMode
                         backspaceByte = { backspaceByte },
                         onSend = { viewModel.send(it) },
                         rows = settings.keyBarRows,
+                        onHaptic = {
+                            if (settings.keyBarHapticsEnabled) {
+                                keyBarVibrate(context, settings.keyBarHapticMs, settings.keyBarHapticAmplitude)
+                            }
+                        },
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -535,4 +540,19 @@ private fun vibrate(context: Context) {
         @Suppress("DEPRECATION") context.getSystemService(Vibrator::class.java)
     }
     vibrator?.vibrate(VibrationEffect.createOneShot(40, VibrationEffect.DEFAULT_AMPLITUDE))
+}
+
+/** Configurable key-bar tick: [ms] length, [amplitude] intensity (1–255; devices without amplitude
+ *  control fall back to a fixed buzz). */
+private fun keyBarVibrate(context: Context, ms: Int, amplitude: Int) {
+    val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        (context.getSystemService(VibratorManager::class.java))?.defaultVibrator
+    } else {
+        @Suppress("DEPRECATION") context.getSystemService(Vibrator::class.java)
+    }
+    runCatching {
+        vibrator?.vibrate(
+            VibrationEffect.createOneShot(ms.toLong().coerceIn(1, 100), amplitude.coerceIn(1, 255)),
+        )
+    }
 }

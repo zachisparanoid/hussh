@@ -83,6 +83,11 @@ fun SettingsScreen(navController: NavHostController, viewModel: SettingsViewMode
             OutlinedButton(onClick = { viewModel.resetKeyBar() }, Modifier.fillMaxWidth()) { Text("Reset key bar to default") }
             ToggleRow("Show key bar when keyboard hidden", s.keyBarVisibleWhenKeyboardHidden, viewModel::setKeyBarVisible)
             EnumDropdown("Rows of buttons", s.keyBarRows, listOf(1, 2, 3), { "$it" }, viewModel::setKeyBarRows, Modifier.fillMaxWidth())
+            ToggleRow("Haptic feedback", s.keyBarHapticsEnabled, viewModel::setKeyBarHaptics)
+            Text("Haptic length: ${s.keyBarHapticMs} ms")
+            Slider(value = s.keyBarHapticMs.toFloat(), onValueChange = { viewModel.setKeyBarHapticMs(it.toInt()) }, valueRange = 1f..60f)
+            Text("Haptic intensity: ${s.keyBarHapticAmplitude}")
+            Slider(value = s.keyBarHapticAmplitude.toFloat(), onValueChange = { viewModel.setKeyBarHapticAmplitude(it.toInt()) }, valueRange = 1f..255f)
 
             Section("Background & security")
             NumberField("Default keep-alive (s)", s.defaultKeepAliveSec, viewModel::setKeepAlive)

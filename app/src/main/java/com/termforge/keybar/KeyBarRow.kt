@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
@@ -68,17 +69,18 @@ fun KeyBarRow(
     backspaceByte: () -> Byte,
     onSend: (ByteArray) -> Unit,
     rows: Int = 1,
+    onHaptic: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val n = rows.coerceIn(1, 3)
     if (n <= 1) {
-        SingleKeyRow(layout.buttons, state, appCursor, backspaceByte, onSend, modifier)
+        SingleKeyRow(layout.buttons, state, appCursor, backspaceByte, onSend, onHaptic, modifier)
     } else {
         // Split the layout's keys across n stacked rows so more are visible without scrolling.
         val perRow = ceil(layout.buttons.size / n.toFloat()).toInt().coerceAtLeast(1)
         Column(modifier) {
             layout.buttons.chunked(perRow).forEach { rowButtons ->
-                SingleKeyRow(rowButtons, state, appCursor, backspaceByte, onSend, Modifier.fillMaxWidth())
+                SingleKeyRow(rowButtons, state, appCursor, backspaceByte, onSend, onHaptic, Modifier.fillMaxWidth())
             }
         }
     }
@@ -93,6 +95,7 @@ private fun SingleKeyRow(
     appCursor: () -> Boolean,
     backspaceByte: () -> Byte,
     onSend: (ByteArray) -> Unit,
+    onHaptic: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyRow(
@@ -101,7 +104,7 @@ private fun SingleKeyRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         items(buttons, key = { it.id }) { button ->
-            KeyBarButton(button, state, appCursor, backspaceByte, onSend)
+            KeyBarButton(button, state, appCursor, backspaceByte, onSend, onHaptic)
         }
     }
 }
@@ -113,7 +116,9 @@ private fun KeyBarButton(
     appCursor: () -> Boolean,
     backspaceByte: () -> Byte,
     onSend: (ByteArray) -> Unit,
+    onHaptic: () -> Unit,
 ) {
+    val haptic by rememberUpdatedState(onHaptic) // captured by the gesture; keep it current
     val colors = MaterialTheme.colorScheme
     val modState = button.modifier?.let { state.stateOf(it) } ?: ModState.OFF
 
@@ -152,10 +157,11 @@ private fun KeyBarButton(
                             val mod = button.modifier
                             if (mod != null) {
                                 when (awaitPressOutcome(LATCH_MS)) {
-                                    PressOutcome.UP -> state.tap(mod)        // quick tap → one-shot
-                                    PressOutcome.CANCELLED -> Unit           // scrolled past → ignore
-                                    PressOutcome.TIMEOUT -> {                // held → latch
+                                    PressOutcome.UP -> { state.tap(mod); haptic() }   // quick tap → one-shot
+                                    PressOutcome.CANCELLED -> Unit                    // scrolled past → ignore
+                                    PressOutcome.TIMEOUT -> {                         // held → latch
                                         state.longPress(mod)
+                                        haptic()
                                         waitForUpOrCancellation()
                                     }
                                 }
@@ -167,10 +173,11 @@ private fun KeyBarButton(
                             // Brief guard rules out a scroll before the first send, so dragging the
                             // bar by grabbing an arrow never emits a keystroke.
                             when (awaitPressOutcome(FIRST_CHAR_GUARD_MS)) {
-                                PressOutcome.CANCELLED -> Unit               // scrolled past → nothing
-                                PressOutcome.UP -> sendButton()              // very quick tap → one send
-                                PressOutcome.TIMEOUT -> {                    // pressed in place → send + maybe repeat
+                                PressOutcome.CANCELLED -> Unit                        // scrolled past → nothing
+                                PressOutcome.UP -> { sendButton(); haptic() }         // very quick tap → one send
+                                PressOutcome.TIMEOUT -> {                             // pressed in place → send + maybe repeat
                                     sendButton()
+                                    haptic() // one bump on the press, not per auto-repeat
                                     if (awaitPressOutcome(INITIAL_REPEAT_DELAY_MS - FIRST_CHAR_GUARD_MS)
                                         == PressOutcome.TIMEOUT
                                     ) {
@@ -184,7 +191,7 @@ private fun KeyBarButton(
                             }
                         }
                         else -> {                                    // LITERAL / MOMENTARY / MACRO
-                            if (waitForUpOrCancellation() != null) sendButton() // send on release, not on a scroll
+                            if (waitForUpOrCancellation() != null) { sendButton(); haptic() } // on release, not on a scroll
                         }
                     }
                 }
