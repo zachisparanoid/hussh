@@ -3,7 +3,7 @@ plugins {
 }
 
 // Vendored from github.com/termux/termux-app (Apache-2.0). The native PTY layer (jni/, JNI.so)
-// has been removed: TermForge drives the emulator from a network transport, never a local process.
+// has been removed: Hussh drives the emulator from a network transport, never a local process.
 // See TerminalSession's "network mode" patch.
 android {
     namespace = "com.termux.emulator"

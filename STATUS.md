@@ -1,10 +1,10 @@
-# TermForge — Build Status vs. Definition of Done
+# Hussh — Build Status vs. Definition of Done
 
 **Honest status as of this build session.** Legend: ✅ implemented & compiles · 🟡 implemented, needs on-device verification · ◐ partial · ⬜ not done.
 
 This codebase **compiles** (`./gradlew :app:assembleDebug` succeeds) and ships **44 passing JVM unit tests** over the high-risk pure logic (AES-GCM crypto, Telnet negotiation, ANSI escape composition, key-bar touch-state machine).
 
-**Device-verified** (installed + run on a Samsung Galaxy Z Fold 6, Android 16 / API 36): installs cleanly, launches, renders the host list (Forge Dark + Material You), opens the **SQLCipher-encrypted DB**, navigates the M3 UI — and **connects a real SSH session end-to-end**: host-key TOFU prompt with live SHA256/MD5 fingerprints → accept → authenticate → **interactive shell prompt (`ubuntu@ubuntu-vm:~$`) rendered** via the Termux VT engine, with the keyboard helper bar showing the exact spec default order. **Auto-reconnect with exponential backoff** (2s/4s/8s) and **background session persistence** (foreground service holds the session, active-count badge updates) were also observed live. Telnet/raw-TCP/SFTP transports and biometric enforcement still await their own live tests.
+**Device-verified** (installed + run on a Samsung Galaxy Z Fold 6, Android 16 / API 36): installs cleanly, launches, renders the host list (Hussh Dark + Material You), opens the **SQLCipher-encrypted DB**, navigates the M3 UI — and **connects a real SSH session end-to-end**: host-key TOFU prompt with live SHA256/MD5 fingerprints → accept → authenticate → **interactive shell prompt (`ubuntu@ubuntu-vm:~$`) rendered** via the Termux VT engine, with the keyboard helper bar showing the exact spec default order. **Auto-reconnect with exponential backoff** (2s/4s/8s) and **background session persistence** (foreground service holds the session, active-count badge updates) were also observed live. Telnet/raw-TCP/SFTP transports and biometric enforcement still await their own live tests.
 
 > **Two device-only crashes found & fixed during verification** (both invisible to the JVM unit tests):
 > 1. **Keystore IV:** `CredentialCrypto.encrypt` passed a caller-supplied IV to an Android Keystore GCM key → `InvalidAlgorithmParameterException: Caller-provided IV not permitted`. Fixed by letting the Keystore generate the IV (`cipher.init(ENCRYPT_MODE, key)`, read `cipher.iv`).
@@ -36,4 +36,4 @@ This codebase **compiles** (`./gradlew :app:assembleDebug` succeeds) and ships *
 3. Confirm the BouncyCastle provider swap + MINA work on the device ABI (see `SecurityProviders`).
 4. Add: host import/export, process-death session restore, FragmentActivity-based biometric gate, drag-reorder, per-key custom editor, multi-item transfer queue with notifications.
 
-See `docs/superpowers/specs/2026-05-28-termforge-design.md` for architecture and `docs/superpowers/plans/2026-05-28-termforge.md` for the build plan.
+See `docs/superpowers/specs/2026-05-28-hussh-design.md` for architecture and `docs/superpowers/plans/2026-05-28-hussh.md` for the build plan.

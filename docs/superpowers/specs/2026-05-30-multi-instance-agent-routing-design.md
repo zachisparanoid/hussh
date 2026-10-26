@@ -4,7 +4,7 @@
 
 ## Goal
 
-Make TermForge aware of **every** Claude Code instance running on a host — including ones in detached or background tmux panes — and let the user **act on the right one**: a notification names the specific instance, tapping it lands the terminal in that instance, and Approve/Deny/Continue/voice-text route to *that* instance's input, regardless of tmux attach state.
+Make Hussh aware of **every** Claude Code instance running on a host — including ones in detached or background tmux panes — and let the user **act on the right one**: a notification names the specific instance, tapping it lands the terminal in that instance, and Approve/Deny/Continue/voice-text route to *that* instance's input, regardless of tmux attach state.
 
 ## Problem
 
@@ -28,9 +28,9 @@ So: **discover** instances via tmux, **signal** via a side-channel file (indepen
             ┌──────────────────────────── SERVER (host) ────────────────────────────┐
  Claude #1  │  hook(Stop/Notification) ─┐                                            │
  (pane %42) │                           │ append JSON line                           │
- Claude #2  │  hook ────────────────────┼──────────▶  ~/.termforge/attention.jsonl   │
+ Claude #2  │  hook ────────────────────┼──────────▶  ~/.hussh/attention.jsonl   │
  (pane %13) │                           │                      ▲  │                  │
-            │  tf-route.sh: list | focus | send | capture ─────┘  │ tail -F          │
+            │  hussh-route.sh: list | focus | send | capture ─────┘  │ tail -F          │
             └─────────────────────────────────────────────────▲──┼──────────────────┘
                             SSH (existing connection)          │  │
             ┌───────────────────────────────────────────────  │  ▼  ─ PHONE (app) ──┐
@@ -44,7 +44,7 @@ So: **discover** instances via tmux, **signal** via a side-channel file (indepen
 
 ## Server components
 
-### Event feed: `~/.termforge/attention.jsonl`
+### Event feed: `~/.hussh/attention.jsonl`
 Append-only. Each Stop/Notification hook invocation appends **one** JSON line (single `printf`, atomic for our small lines). Schema (`v:1`):
 
 ```json
@@ -59,10 +59,10 @@ Append-only. Each Stop/Notification hook invocation appends **one** JSON line (s
 - `socket`: tmux socket path (from `$TMUX`), so the helper targets the right server (`tmux -S`).
 - `prompt`: the last non-empty lines from `capture-pane` (only for `perm`/`input`); lets the phone show Claude's *actual* options.
 
-### Enhanced hook: `~/.claude/hooks/tf-attn.sh`
+### Enhanced hook: `~/.claude/hooks/hussh-attn.sh`
 Reads Claude's hook JSON on stdin (`jq`) to get `hook_event_name` + message → derives `reason`. Resolves identity from `$TMUX_PANE` via `tmux display-message`; if `$TMUX` is unset, records a non-tmux instance (`instance:null`, notify-only). For `perm`/`input`, runs `tmux capture-pane -p -t "$TMUX_PANE"` and keeps the last ~8 non-blank lines as `prompt`. Appends the JSON line to the feed. Still emits the inline OSC marker (cheap; covers the non-tmux foreground case and keeps the marker out of the rendered screen via the existing scanner).
 
-### Helper: `~/.termforge/tf-route.sh`
+### Helper: `~/.hussh/hussh-route.sh`
 Thin wrapper over tmux so the phone runs one stable command:
 - `list` → JSON array of live `claude` panes: `{instance,socket,target,session,window_name,cwd}` (from `tmux list-panes -a -F`).
 - `focus <socket> <pane>` → `tmux -S <socket> switch-client -c <client> -t <session> \; select-window -t <win> \; select-pane -t <pane>` (best-effort; client identification tuned on device).
@@ -71,7 +71,7 @@ Thin wrapper over tmux so the phone runs one stable command:
 - `capture <socket> <pane>` → `tmux -S <socket> capture-pane -p -t <pane>` (re-read current prompt on demand).
 
 ### Setup script
-`termforge-notify-setup.sh` (extended): installs the enhanced hook + `tf-route.sh`, creates `~/.termforge/`, registers Stop + Notification hooks. Idempotent; `--uninstall` reverses. `jq` required (already present).
+`hussh-notify-setup.sh` (extended): installs the enhanced hook + `hussh-route.sh`, creates `~/.hussh/`, registers Stop + Notification hooks. Idempotent; `--uninstall` reverses. `jq` required (already present).
 
 ## Phone components
 
@@ -82,13 +82,13 @@ Thin wrapper over tmux so the phone runs one stable command:
 Parses one JSONL line → `AgentEvent` (or null on malformed). Tolerant of unknown fields and partial/garbled lines (a half-written line from a racing append is dropped, not fatal). This is the TDD core, mirroring `AttentionMarkerScanner`.
 
 ### `AgentInstanceRegistry` (per host)
-On connect (when the agent-attention setting is on): seed with `tf-route.sh list`, replay the last ~50 feed lines for recent reasons, then follow live via a persistent `tail -n0 -F` exec channel. Exposes a `StateFlow<List<AgentInstance>>`. Periodic (or on-demand) reconcile via `list` prunes dead panes. Emits an "attention" callback when an instance transitions to `perm`/`input`/`done` (debounced per instance, 2s — reuse the existing pattern).
+On connect (when the agent-attention setting is on): seed with `hussh-route.sh list`, replay the last ~50 feed lines for recent reasons, then follow live via a persistent `tail -n0 -F` exec channel. Exposes a `StateFlow<List<AgentInstance>>`. Periodic (or on-demand) reconcile via `list` prunes dead panes. Emits an "attention" callback when an instance transitions to `perm`/`input`/`done` (debounced per instance, 2s — reuse the existing pattern).
 
 ### Transport: concurrent channels
-Extend the SSH transport so a session supports: one **long-lived feed channel** (`tail -F`) plus **on-demand command channels** (`tf-route.sh send|focus|capture|list`). MINA SSHD supports many exec channels per session; today's `openAuxStream(command)` opened a single reusable channel for voice — generalize to `openExec(command): AuxChannel` returning an independent channel with streamed stdout and a completion signal. The feed channel stays open for the connection's life; command channels are short-lived.
+Extend the SSH transport so a session supports: one **long-lived feed channel** (`tail -F`) plus **on-demand command channels** (`hussh-route.sh send|focus|capture|list`). MINA SSHD supports many exec channels per session; today's `openAuxStream(command)` opened a single reusable channel for voice — generalize to `openExec(command): AuxChannel` returning an independent channel with streamed stdout and a completion signal. The feed channel stays open for the connection's life; command channels are short-lived.
 
 ### Notifications & focus
-`AttentionNotifier` extended to post **per-instance** notifications (id = instanceKey hash; title = `"<sessionName> · <reason phrase>"`, e.g. "orchestrator · needs permission"). Tap → deep-link carrying `instanceKey` → `MainActivity` → ensure/open the host connection, run `tf-route.sh focus`, navigate to that terminal. The feed becomes the notification source of truth; the inline `AttentionMarkerScanner` is downgraded to *marker-stripping only* (no notify) so we never double-fire.
+`AttentionNotifier` extended to post **per-instance** notifications (id = instanceKey hash; title = `"<sessionName> · <reason phrase>"`, e.g. "orchestrator · needs permission"). Tap → deep-link carrying `instanceKey` → `MainActivity` → ensure/open the host connection, run `hussh-route.sh focus`, navigate to that terminal. The feed becomes the notification source of truth; the inline `AttentionMarkerScanner` is downgraded to *marker-stripping only* (no notify) so we never double-fire.
 
 ### Actions & voice routing
 Approve/Deny/Continue and voice-text resolve to a `send`/`sendkey` on the instance's `socket`+`paneId`:
@@ -105,7 +105,7 @@ Reuse `agentAttentionEnabled` (master toggle). The feed/registry only runs when 
 1. Claude finishes/prompts → hook stamps identity+reason (+prompt) → appends to feed (works detached).
 2. Phone's feed channel streams the line → `AgentEventParser` → `AgentInstanceRegistry` updates → per-instance notification (and Agents UI updates).
 3. User taps → focus that pane (terminal jumps to it) — or acts directly from the notification/Agents UI.
-4. Action → command channel runs `tf-route.sh send/sendkey <socket> <pane> …` → lands in the exact instance, attached or not.
+4. Action → command channel runs `hussh-route.sh send/sendkey <socket> <pane> …` → lands in the exact instance, attached or not.
 
 ## Error handling
 - **Phone not connected to the host** → instance shows "offline"; actions disabled with a toast. (Phone is the relay; no connection = no routing.)
@@ -120,7 +120,7 @@ Reuse `agentAttentionEnabled` (master toggle). The feed/registry only runs when 
 
 ## Testing
 - **Unit (JVM):** `AgentEventParser` — valid line, each reason, non-tmux (`instance:null`), malformed/partial line, unknown fields, prompt extraction. Mirrors the `AttentionMarkerScanner` test style.
-- **Server integration:** `tf-route.sh` + hook exercised against a **throwaway** tmux session (never the user's real panes): list/identity/send-to-detached/capture/focus. (The core was already proven manually.)
+- **Server integration:** `hussh-route.sh` + hook exercised against a **throwaway** tmux session (never the user's real panes): list/identity/send-to-detached/capture/focus. (The core was already proven manually.)
 - **Build:** full `assembleDebug` + existing suite stays green.
 - **Device:** against the real 5-Claude fleet — detached instance pings, notification names the right one, tap lands in it, Approve routes to it, voice-text routes to it.
 
@@ -132,4 +132,4 @@ Reuse `agentAttentionEnabled` (master toggle). The feed/registry only runs when 
 - **Missed-while-offline** events beyond the tail-replay window are not recovered (acceptable; attention is transient).
 
 ## Security
-All of this runs as the user's own account over their already-authenticated SSH connection; `send-keys` types into the user's own agents. No new trust boundary is crossed. The feed file and helper live under `~/.termforge`/`~/.claude` with default perms; note that any local process under the same account could read them (same as the user's own shell history) — acceptable for a personal tool.
+All of this runs as the user's own account over their already-authenticated SSH connection; `send-keys` types into the user's own agents. No new trust boundary is crossed. The feed file and helper live under `~/.hussh`/`~/.claude` with default perms; note that any local process under the same account could read them (same as the user's own shell history) — acceptable for a personal tool.

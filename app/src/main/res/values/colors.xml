@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="forge_surface">#0D0F12</color>
-    <color name="forge_amber">#FFB300</color>
+    <color name="hussh_surface">#0D0F12</color>
+    <color name="hussh_amber">#FFB300</color>
     <color name="ic_launcher_background">#0D0F12</color>
     <color name="splash_background">#0D0F12</color>
 </resources>

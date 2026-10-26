@@ -6,12 +6,12 @@ plugins {
 }
 
 android {
-    namespace = "com.termforge.wear"
+    namespace = "com.hussh.wear"
     compileSdk = 35
 
     defaultConfig {
         // Must match the phone app (same applicationId + signing) so the Wear Data Layer can pair.
-        applicationId = "com.termforge"
+        applicationId = "com.hussh"
         minSdk = 30 // Wear OS 3 (Galaxy Watch 4+)
         targetSdk = 34
         versionCode = 1

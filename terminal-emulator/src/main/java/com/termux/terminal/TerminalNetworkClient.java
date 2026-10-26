@@ -1,10 +1,10 @@
 package com.termux.terminal;
 
 /**
- * TermForge addition (not part of upstream Termux).
+ * Hussh addition (not part of upstream Termux).
  *
  * The outbound seam for a network-backed {@link TerminalSession}. Where upstream Termux writes
- * terminal output to a local pseudo-terminal file descriptor, TermForge forwards it to a remote
+ * terminal output to a local pseudo-terminal file descriptor, Hussh forwards it to a remote
  * host over SSH / Telnet / raw-TCP through this interface, and feeds inbound bytes back in via
  * {@link TerminalSession#onNetworkInput(byte[], int, int)}.
  */

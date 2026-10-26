@@ -1,4 +1,4 @@
-# TermForge
+# Hussh
 
 A native Android terminal client — SSH, SFTP, Telnet, and raw-TCP — built as a spiritual successor
 to JuiceSSH. **Text protocols only**: there is deliberately no RDP, VNC, or graphical remoting.
@@ -33,7 +33,7 @@ a vendored Termux VT/xterm-256color engine.
 `:app` is organized by feature: `data/` (db, crypto, prefs, repo), `transport/` (ssh, telnet, sftp),
 `session/` (foreground service + manager), `keybar/`, `terminal/`, `ui/` (screens + theme), `nav/`.
 
-See `docs/superpowers/specs/2026-05-28-termforge-design.md` for the full architecture and the
+See `docs/superpowers/specs/2026-05-28-hussh-design.md` for the full architecture and the
 decisions/deviations from the original spec.
 
 ## Building

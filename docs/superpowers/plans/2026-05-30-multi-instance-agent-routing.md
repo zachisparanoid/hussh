@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (inline) or superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** TermForge sees every Claude Code instance on a host (incl. detached tmux panes), notifies per-instance, and routes tap-to-focus + Approve/Deny/voice to the exact instance via tmux.
+**Goal:** Hussh sees every Claude Code instance on a host (incl. detached tmux panes), notifies per-instance, and routes tap-to-focus + Approve/Deny/voice to the exact instance via tmux.
 
-**Architecture:** A server hook writes per-instance events (identity + reason + prompt) to `~/.termforge/attention.jsonl`; a `tf-route.sh` helper wraps tmux `list/focus/send/capture`. The phone tails the feed over a long-lived SSH exec channel, builds an `AgentInstance` registry, posts per-instance notifications, and routes actions through short-lived exec channels running `tf-route.sh send`. tmux is the address layer; `send-keys` reaches any pane regardless of attach state.
+**Architecture:** A server hook writes per-instance events (identity + reason + prompt) to `~/.hussh/attention.jsonl`; a `hussh-route.sh` helper wraps tmux `list/focus/send/capture`. The phone tails the feed over a long-lived SSH exec channel, builds an `AgentInstance` registry, posts per-instance notifications, and routes actions through short-lived exec channels running `hussh-route.sh send`. tmux is the address layer; `send-keys` reaches any pane regardless of attach state.
 
 **Tech Stack:** bash + jq + tmux (server); Kotlin/MINA SSHD/Compose/Hilt (phone). Branch: `feature/multi-instance-agent-routing`. Spec: `docs/superpowers/specs/2026-05-30-multi-instance-agent-routing-design.md`.
 
@@ -15,15 +15,15 @@
 ## File structure
 
 **Server (installed by setup script, also kept in-repo under `resources/server/`):**
-- `resources/server/tf-attn.sh` — the hook body (was inline in the setup script; now a tracked file).
-- `resources/server/tf-route.sh` — tmux helper: `list|focus|send|sendkey|capture`.
-- `resources/server/termforge-notify-setup.sh` — MODIFY: install both scripts + `~/.termforge/`.
+- `resources/server/hussh-attn.sh` — the hook body (was inline in the setup script; now a tracked file).
+- `resources/server/hussh-route.sh` — tmux helper: `list|focus|send|sendkey|capture`.
+- `resources/server/hussh-notify-setup.sh` — MODIFY: install both scripts + `~/.hussh/`.
 
 **Phone — transport:**
 - `app/.../transport/Transport.kt` — MODIFY: add `ExecChannel` + `openExec()`.
 - `app/.../transport/ssh/SshTransport.kt` — MODIFY: implement `openExec()`.
 
-**Phone — agent layer (new package `com.termforge.agent`):**
+**Phone — agent layer (new package `com.hussh.agent`):**
 - `agent/AgentEvent.kt` — event/instance data + `AgentEventParser` (pure, TDD).
 - `agent/AgentInstanceRegistry.kt` — per-connection feed follower + state.
 - `agent/AgentRouter.kt` — focus/send/sendkey via exec channels.
@@ -42,19 +42,19 @@
 
 ## Phase A — Server (no app changes; validate via throwaway tmux)
 
-### Task 1: The hook script `tf-attn.sh`
+### Task 1: The hook script `hussh-attn.sh`
 
-**Files:** Create `resources/server/tf-attn.sh`
+**Files:** Create `resources/server/hussh-attn.sh`
 
 - [ ] **Step 1: Write the script**
 
 ```bash
 #!/usr/bin/env bash
-# tf-attn.sh — TermForge agent-attention hook. Reads Claude's hook JSON on stdin, appends a
+# hussh-attn.sh — Hussh agent-attention hook. Reads Claude's hook JSON on stdin, appends a
 # per-instance event to the feed, and emits the inline OSC marker. Best-effort: never abort before
-# the final printf (Claude needs that stdout). Installed by termforge-notify-setup.sh.
-FEED="$HOME/.termforge/attention.jsonl"
-mkdir -p "$HOME/.termforge" 2>/dev/null
+# the final printf (Claude needs that stdout). Installed by hussh-notify-setup.sh.
+FEED="$HOME/.hussh/attention.jsonl"
+mkdir -p "$HOME/.hussh" 2>/dev/null
 
 INPUT="$(cat)"
 EVENT="$(printf '%s' "$INPUT" | jq -r '.hook_event_name // "Stop"' 2>/dev/null || echo Stop)"
@@ -92,34 +92,34 @@ TS="$(date +%s 2>/dev/null || echo 0)"
   fi
 } 2>/dev/null || true
 
-printf '%b' '{"suppressOutput": true, "terminalSequence": "\\u001b]777;notify;TermForge;tf-attn\\u0007"}'
+printf '%b' '{"suppressOutput": true, "terminalSequence": "\\u001b]777;notify;Hussh;hussh-attn\\u0007"}'
 ```
 
 - [ ] **Step 2: Verify it emits valid JSON + a feed line, in a throwaway tmux pane**
 
 Run:
 ```bash
-cp resources/server/tf-attn.sh /tmp/tf-attn.sh && chmod +x /tmp/tf-attn.sh
-S="tf-test-$$"; tmux new-session -d -s "$S" "bash -c 'HOME=/tmp/tfh-$$ TMUX=\$TMUX TMUX_PANE=\$TMUX_PANE bash /tmp/tf-attn.sh <<<\"{\\\"hook_event_name\\\":\\\"Notification\\\",\\\"message\\\":\\\"permission needed\\\"}\" | jq -e . >/tmp/out-$$ 2>&1; cat /tmp/tfh-$$/.termforge/attention.jsonl >/tmp/feed-$$ 2>&1; sleep 2'"
+cp resources/server/hussh-attn.sh /tmp/hussh-attn.sh && chmod +x /tmp/hussh-attn.sh
+S="hussh-test-$$"; tmux new-session -d -s "$S" "bash -c 'HOME=/tmp/hussh-$$ TMUX=\$TMUX TMUX_PANE=\$TMUX_PANE bash /tmp/hussh-attn.sh <<<\"{\\\"hook_event_name\\\":\\\"Notification\\\",\\\"message\\\":\\\"permission needed\\\"}\" | jq -e . >/tmp/out-$$ 2>&1; cat /tmp/hussh-$$/.hussh/attention.jsonl >/tmp/feed-$$ 2>&1; sleep 2'"
 sleep 1; echo "--- stdout (valid JSON?) ---"; jq . /tmp/out-$$; echo "--- feed line ---"; jq . /tmp/feed-$$
-tmux kill-session -t "$S"; rm -rf /tmp/tfh-$$ /tmp/out-$$ /tmp/feed-$$
+tmux kill-session -t "$S"; rm -rf /tmp/hussh-$$ /tmp/out-$$ /tmp/feed-$$
 ```
 Expected: stdout is valid JSON with `terminalSequence`; feed line has `reason:"perm"`, a non-null `instance` (e.g. `%NN`), `socket`, `target`, and a `prompt` array.
 
 - [ ] **Step 3: Commit**
 ```bash
-git add resources/server/tf-attn.sh && git commit -m "server: agent-attention hook records per-instance feed events"
+git add resources/server/hussh-attn.sh && git commit -m "server: agent-attention hook records per-instance feed events"
 ```
 
-### Task 2: The router helper `tf-route.sh`
+### Task 2: The router helper `hussh-route.sh`
 
-**Files:** Create `resources/server/tf-route.sh`
+**Files:** Create `resources/server/hussh-route.sh`
 
 - [ ] **Step 1: Write it**
 
 ```bash
 #!/usr/bin/env bash
-# tf-route.sh — TermForge tmux router. The phone runs these over SSH exec channels.
+# hussh-route.sh — Hussh tmux router. The phone runs these over SSH exec channels.
 #   list                              → JSONL of live claude panes (reason=running)
 #   capture <socket> <pane>           → raw screen text of a pane
 #   send    <socket> <pane> <text...> → type literal text + Enter into a pane
@@ -155,7 +155,7 @@ case "$CMD" in
     if [ -n "$CLIENT" ]; then tmux -S "$SOCK" switch-client -c "$CLIENT" -t "$SESS" 2>/dev/null; fi
     tmux -S "$SOCK" select-window -t "$PANE" 2>/dev/null; tmux -S "$SOCK" select-pane -t "$PANE" 2>/dev/null
     echo OK ;;
-  *) echo "usage: tf-route.sh list|capture|send|sendkey|focus ..." >&2; exit 2 ;;
+  *) echo "usage: hussh-route.sh list|capture|send|sendkey|focus ..." >&2; exit 2 ;;
 esac
 ```
 
@@ -163,49 +163,49 @@ esac
 
 Run:
 ```bash
-cp resources/server/tf-route.sh /tmp/tf-route.sh && chmod +x /tmp/tf-route.sh
-S="tf-r-$$"; tmux new-session -d -s "$S" "bash --norc -c 'cat > /tmp/r-$$.out'"
+cp resources/server/hussh-route.sh /tmp/hussh-route.sh && chmod +x /tmp/hussh-route.sh
+S="hussh-r-$$"; tmux new-session -d -s "$S" "bash --norc -c 'cat > /tmp/r-$$.out'"
 P=$(tmux display-message -p -t "$S" '#{pane_id}'); SK=$(tmux display-message -p -t "$S" '#{socket_path}' 2>/dev/null || echo /tmp/tmux-$(id -u)/default)
-bash /tmp/tf-route.sh send "$SK" "$P" hello world; sleep 0.3
+bash /tmp/hussh-route.sh send "$SK" "$P" hello world; sleep 0.3
 echo "--- delivered? ---"; cat /tmp/r-$$.out
-echo "--- list contains claude panes? ---"; bash /tmp/tf-route.sh list | jq -r .target | head
+echo "--- list contains claude panes? ---"; bash /tmp/hussh-route.sh list | jq -r .target | head
 tmux send-keys -t "$P" C-d; tmux kill-session -t "$S" 2>/dev/null; rm -f /tmp/r-$$.out
 ```
 Expected: `/tmp/r-$$.out` contains `hello world`; `list` prints the real claude panes' targets.
 
 - [ ] **Step 3: Commit**
 ```bash
-git add resources/server/tf-route.sh && git commit -m "server: tf-route.sh tmux helper (list/focus/send/capture)"
+git add resources/server/hussh-route.sh && git commit -m "server: hussh-route.sh tmux helper (list/focus/send/capture)"
 ```
 
 ### Task 3: Update the setup script
 
-**Files:** Modify `resources/server/termforge-notify-setup.sh`
+**Files:** Modify `resources/server/hussh-notify-setup.sh`
 
-- [ ] **Step 1:** Replace the inline `cat >"$HOOK" <<'EOF' … EOF` hook block with installation from the tracked files. The script now copies `tf-attn.sh` → `~/.claude/hooks/tf-attn.sh` and `tf-route.sh` → `~/.termforge/tf-route.sh`, both `chmod +x`, and `mkdir -p ~/.termforge`. Since the scripts are deployed *alongside* the setup script, resolve their directory:
+- [ ] **Step 1:** Replace the inline `cat >"$HOOK" <<'EOF' … EOF` hook block with installation from the tracked files. The script now copies `hussh-attn.sh` → `~/.claude/hooks/hussh-attn.sh` and `hussh-route.sh` → `~/.hussh/hussh-route.sh`, both `chmod +x`, and `mkdir -p ~/.hussh`. Since the scripts are deployed *alongside* the setup script, resolve their directory:
 
 ```bash
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-install -D -m755 "$SRC_DIR/tf-attn.sh" "$HOME/.claude/hooks/tf-attn.sh"
-install -D -m755 "$SRC_DIR/tf-route.sh" "$HOME/.termforge/tf-route.sh"
-mkdir -p "$HOME/.termforge"
+install -D -m755 "$SRC_DIR/hussh-attn.sh" "$HOME/.claude/hooks/hussh-attn.sh"
+install -D -m755 "$SRC_DIR/hussh-route.sh" "$HOME/.hussh/hussh-route.sh"
+mkdir -p "$HOME/.hussh"
 ```
-Keep the existing `jq` requirement check, the Stop+Notification registration (`HOOK="$HOME/.claude/hooks/tf-attn.sh"`), and `--uninstall` (also `rm -f ~/.termforge/tf-route.sh`).
+Keep the existing `jq` requirement check, the Stop+Notification registration (`HOOK="$HOME/.claude/hooks/hussh-attn.sh"`), and `--uninstall` (also `rm -f ~/.hussh/hussh-route.sh`).
 
 - [ ] **Step 2:** Verify install in an isolated HOME (the scripts must sit next to the setup script):
 ```bash
-TFHOME=$(mktemp -d); cp resources/server/tf-*.sh "$TFHOME-src" 2>/dev/null || true
-mkdir -p /tmp/tfsrc && cp resources/server/termforge-notify-setup.sh resources/server/tf-attn.sh resources/server/tf-route.sh /tmp/tfsrc/
-HOME=$TFHOME bash /tmp/tfsrc/termforge-notify-setup.sh
-test -x "$TFHOME/.claude/hooks/tf-attn.sh" && test -x "$TFHOME/.termforge/tf-route.sh" && echo "installed both"
-jq -e '.hooks.Stop and .hooks.Notification' "$TFHOME/.claude/settings.json" >/dev/null && echo "hooks registered"
-rm -rf "$TFHOME" /tmp/tfsrc
+HUSSHHOME=$(mktemp -d); cp resources/server/hussh-*.sh "$HUSSHHOME-src" 2>/dev/null || true
+mkdir -p /tmp/husshsrc && cp resources/server/hussh-notify-setup.sh resources/server/hussh-attn.sh resources/server/hussh-route.sh /tmp/husshsrc/
+HOME=$HUSSHHOME bash /tmp/husshsrc/hussh-notify-setup.sh
+test -x "$HUSSHHOME/.claude/hooks/hussh-attn.sh" && test -x "$HUSSHHOME/.hussh/hussh-route.sh" && echo "installed both"
+jq -e '.hooks.Stop and .hooks.Notification' "$HUSSHHOME/.claude/settings.json" >/dev/null && echo "hooks registered"
+rm -rf "$HUSSHHOME" /tmp/husshsrc
 ```
 Expected: "installed both" + "hooks registered".
 
 - [ ] **Step 3: Commit**
 ```bash
-git add resources/server/termforge-notify-setup.sh && git commit -m "server: setup installs tf-attn.sh + tf-route.sh + ~/.termforge"
+git add resources/server/hussh-notify-setup.sh && git commit -m "server: setup installs hussh-attn.sh + hussh-route.sh + ~/.hussh"
 ```
 
 ---
@@ -240,13 +240,13 @@ And to the `Transport` interface (next to `openAuxStream`):
 - [ ] **Step 2: Implement in `SshTransport.kt`** (after `openAuxStream`). Imports: `java.io.BufferedReader`, `java.io.InputStreamReader`, `java.util.EnumSet`, `org.apache.sshd.common.channel.ClientChannelEvent`, `kotlinx.coroutines.flow.callbackFlow`/`channelFlow`, `kotlinx.coroutines.flow.flowOn`, `kotlinx.coroutines.channels.awaitClose`.
 
 ```kotlin
-    override suspend fun openExec(command: String): com.termforge.transport.ExecChannel? {
+    override suspend fun openExec(command: String): com.hussh.transport.ExecChannel? {
         val sess = session ?: return null
         return withContext(Dispatchers.IO) {
             runCatching {
                 val ch = sess.createExecChannel(command)
                 ch.open().verify(Duration.ofMillis(config.connectTimeoutMs))
-                object : com.termforge.transport.ExecChannel {
+                object : com.hussh.transport.ExecChannel {
                     override val stdout = kotlinx.coroutines.flow.channelFlow {
                         val reader = BufferedReader(InputStreamReader(ch.invertedOut, Charsets.UTF_8))
                         try {
@@ -273,7 +273,7 @@ Expected: BUILD SUCCESSFUL.
 
 - [ ] **Step 4: Commit**
 ```bash
-git add app/src/main/java/com/termforge/transport/Transport.kt app/src/main/java/com/termforge/transport/ssh/SshTransport.kt
+git add app/src/main/java/com/hussh/transport/Transport.kt app/src/main/java/com/hussh/transport/ssh/SshTransport.kt
 git commit -m "transport: add ExecChannel + openExec (read-only, safe to close)"
 ```
 
@@ -287,7 +287,7 @@ git commit -m "transport: add ExecChannel + openExec (read-only, safe to close)"
 
 - [ ] **Step 1: Write the failing tests**
 ```kotlin
-package com.termforge.agent
+package com.hussh.agent
 
 import org.junit.Assert.*
 import org.junit.Test
@@ -325,17 +325,17 @@ class AgentEventParserTest {
 ```
 
 - [ ] **Step 2: Run → FAIL**
-Run: `ANDROID_HOME=/home/ubuntu/Android/Sdk ./gradlew :app:testDebugUnitTest --tests "com.termforge.agent.AgentEventParserTest"`
+Run: `ANDROID_HOME=/home/ubuntu/Android/Sdk ./gradlew :app:testDebugUnitTest --tests "com.hussh.agent.AgentEventParserTest"`
 Expected: FAIL (unresolved `AgentEventParser`).
 
 - [ ] **Step 3: Implement** `agent/AgentEvent.kt` (uses `org.json.JSONObject`, which is available on the JVM unit-test classpath because `testOptions.unitTests.isReturnDefaultValues=true` is set and `org.json` ships with Robolectric; if not resolvable, fall back to kotlinx.serialization `Json { ignoreUnknownKeys = true }`):
 
 ```kotlin
-package com.termforge.agent
+package com.hussh.agent
 
 import org.json.JSONObject
 
-/** One feed event (hook) or list entry (tf-route list). */
+/** One feed event (hook) or list entry (hussh-route list). */
 data class AgentEvent(
     val reason: String,            // done | input | perm | running
     val instance: String?,         // tmux pane id; null = not tmux = not routable
@@ -384,7 +384,7 @@ class AgentEventParser {
 
 - [ ] **Step 5: Commit**
 ```bash
-git add app/src/main/java/com/termforge/agent/AgentEvent.kt app/src/test/java/com/termforge/agent/AgentEventParserTest.kt
+git add app/src/main/java/com/hussh/agent/AgentEvent.kt app/src/test/java/com/hussh/agent/AgentEventParserTest.kt
 git commit -m "agent: AgentEvent + tolerant AgentEventParser (TDD)"
 ```
 
@@ -399,9 +399,9 @@ git commit -m "agent: AgentEvent + tolerant AgentEventParser (TDD)"
 - [ ] **Step 1: Implement.** The registry is owned per `TerminalConnection` and given an `openExec` accessor + the hostId.
 
 ```kotlin
-package com.termforge.agent
+package com.hussh.agent
 
-import com.termforge.transport.ExecChannel
+import com.hussh.transport.ExecChannel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -426,8 +426,8 @@ data class AgentInstance(
 }
 
 /**
- * Follows one host's `~/.termforge/attention.jsonl` over a long-lived exec channel and maintains the
- * set of live agent instances. Seeds with `tf-route.sh list`, replays the feed tail, then follows
+ * Follows one host's `~/.hussh/attention.jsonl` over a long-lived exec channel and maintains the
+ * set of live agent instances. Seeds with `hussh-route.sh list`, replays the feed tail, then follows
  * live. Calls [onAttention] when an instance transitions to a needs-you reason.
  */
 class AgentInstanceRegistry(
@@ -443,8 +443,8 @@ class AgentInstanceRegistry(
     @Volatile private var feed: ExecChannel? = null
 
     private companion object {
-        const val ROUTE = "~/.termforge/tf-route.sh"
-        const val FEED = "~/.termforge/attention.jsonl"
+        const val ROUTE = "~/.hussh/hussh-route.sh"
+        const val FEED = "~/.hussh/attention.jsonl"
         val NEEDS = setOf("perm", "input", "done")
     }
 
@@ -507,7 +507,7 @@ Expected: BUILD SUCCESSFUL.
 
 - [ ] **Step 3: Commit**
 ```bash
-git add app/src/main/java/com/termforge/agent/AgentInstanceRegistry.kt
+git add app/src/main/java/com/hussh/agent/AgentInstanceRegistry.kt
 git commit -m "agent: AgentInstance + AgentInstanceRegistry (feed follower)"
 ```
 
@@ -533,7 +533,7 @@ git commit -m "agent: AgentInstance + AgentInstanceRegistry (feed follower)"
 - [ ] **Step 3: Compile + commit**
 Run: `ANDROID_HOME=/home/ubuntu/Android/Sdk ./gradlew :app:compileDebugKotlin` → SUCCESSFUL.
 ```bash
-git add app/src/main/java/com/termforge/session/TerminalConnection.kt
+git add app/src/main/java/com/hussh/session/TerminalConnection.kt
 git commit -m "session: expose openExec; inline marker now strip-only (feed owns notifications)"
 ```
 
@@ -545,15 +545,15 @@ git commit -m "session: expose openExec; inline marker now strip-only (feed owns
 
 **Files:** Create `agent/AgentRouter.kt`
 
-- [ ] **Step 1: Implement** — runs `tf-route.sh` over short-lived exec channels. Shell-quotes args.
+- [ ] **Step 1: Implement** — runs `hussh-route.sh` over short-lived exec channels. Shell-quotes args.
 ```kotlin
-package com.termforge.agent
+package com.hussh.agent
 
-import com.termforge.transport.ExecChannel
+import com.hussh.transport.ExecChannel
 
-/** Routes actions to a specific tmux pane via tf-route.sh over short-lived exec channels. */
+/** Routes actions to a specific tmux pane via hussh-route.sh over short-lived exec channels. */
 class AgentRouter(private val openExec: suspend (String) -> ExecChannel?) {
-    private val route = "~/.termforge/tf-route.sh"
+    private val route = "~/.hussh/hussh-route.sh"
 
     suspend fun focus(i: AgentInstance) = run("sh $route focus ${q(i.socket)} ${q(i.paneId)}")
     suspend fun sendText(i: AgentInstance, text: String) = run("sh $route send ${q(i.socket)} ${q(i.paneId)} ${q(text)}")
@@ -572,8 +572,8 @@ class AgentRouter(private val openExec: suspend (String) -> ExecChannel?) {
 - [ ] **Step 2: Compile + commit**
 Run: `:app:compileDebugKotlin` → SUCCESSFUL.
 ```bash
-git add app/src/main/java/com/termforge/agent/AgentRouter.kt
-git commit -m "agent: AgentRouter (focus/send/sendkey via tf-route.sh)"
+git add app/src/main/java/com/hussh/agent/AgentRouter.kt
+git commit -m "agent: AgentRouter (focus/send/sendkey via hussh-route.sh)"
 ```
 
 ---
@@ -622,7 +622,7 @@ Add routing entry points used by UI/notifications:
 - [ ] **Step 4: Compile + commit** Phase F:
 Run: `:app:compileDebugKotlin` → SUCCESSFUL.
 ```bash
-git add app/src/main/java/com/termforge/session/ app/src/main/java/com/termforge/MainActivity.kt app/src/main/AndroidManifest.xml
+git add app/src/main/java/com/hussh/session/ app/src/main/java/com/hussh/MainActivity.kt app/src/main/AndroidManifest.xml
 git commit -m "session: per-instance attention notifications + routing + deep-link focus"
 ```
 
@@ -643,7 +643,7 @@ git commit -m "session: per-instance attention notifications + routing + deep-li
 - [ ] **Step 4: Compile + commit**
 Run: `:app:compileDebugKotlin` → SUCCESSFUL.
 ```bash
-git add app/src/main/java/com/termforge/ui/agents/ app/src/main/java/com/termforge/nav/ app/src/main/java/com/termforge/ui/hosts/HostListScreen.kt
+git add app/src/main/java/com/hussh/ui/agents/ app/src/main/java/com/hussh/nav/ app/src/main/java/com/hussh/ui/hosts/HostListScreen.kt
 git commit -m "ui: Agents dashboard (fleet list + focus/approve/deny/reply)"
 ```
 
@@ -656,7 +656,7 @@ git commit -m "ui: Agents dashboard (fleet list + focus/approve/deny/reply)"
 - [ ] Commit any fixups.
 
 ### Task 13: Server install + APK install on device
-- [ ] Re-run `termforge-notify-setup.sh` on this machine (installs the new hook + tf-route.sh). Verify the feed gets a line when a real Claude turn ends: `tail -f ~/.termforge/attention.jsonl`.
+- [ ] Re-run `hussh-notify-setup.sh` on this machine (installs the new hook + hussh-route.sh). Verify the feed gets a line when a real Claude turn ends: `tail -f ~/.hussh/attention.jsonl`.
 - [ ] `adb -s <device> install -r app-debug.apk`.
 
 ### Task 14: Device verify against the real fleet
@@ -667,7 +667,7 @@ git commit -m "ui: Agents dashboard (fleet list + focus/approve/deny/reply)"
 
 ## Self-review
 
-**Spec coverage:** feed file + schema → Task 1; tf-route list/focus/send/capture → Task 2; setup → Task 3; concurrent exec channels (feed + command) → Task 4; tolerant parser → Task 5; registry (seed+tail+reconcile+attention) → Task 6; openExec passthrough + inline-scanner downgrade → Task 7; router → Task 8; SessionManager wiring → Task 9; per-instance notify + deep-link + actions → Task 10; Agents dashboard → Task 11; build/device → Tasks 12-14. Error handling (feed drop re-open, send-fail, malformed line, non-tmux notify-only) covered in Tasks 4/5/6/8/11. Known limitations (non-tmux detached, focus tuning, Approve fidelity) flagged in Tasks 8/10/14.
+**Spec coverage:** feed file + schema → Task 1; hussh-route list/focus/send/capture → Task 2; setup → Task 3; concurrent exec channels (feed + command) → Task 4; tolerant parser → Task 5; registry (seed+tail+reconcile+attention) → Task 6; openExec passthrough + inline-scanner downgrade → Task 7; router → Task 8; SessionManager wiring → Task 9; per-instance notify + deep-link + actions → Task 10; Agents dashboard → Task 11; build/device → Tasks 12-14. Error handling (feed drop re-open, send-fail, malformed line, non-tmux notify-only) covered in Tasks 4/5/6/8/11. Known limitations (non-tmux detached, focus tuning, Approve fidelity) flagged in Tasks 8/10/14.
 
 **Placeholder scan:** Tasks 9-11 specify structure + key code rather than every UI line — intentional, as they follow existing screen patterns (`SettingsScreen`, `ActiveSessionsScreen`) and the exact composables are mechanical; all *novel* logic (server, transport, parser, registry, router) has complete code. The `connectionForHost`/merged-instances-flow bodies in Task 9 are described precisely (first live connection to host; collect each registry flow into a combined MutableStateFlow).
 

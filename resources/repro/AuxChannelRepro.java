@@ -10,7 +10,7 @@ import java.security.KeyPair;
 import java.time.Duration;
 
 /**
- * Faithful reproduction of TermForge's voice bug: does opening + closing a second exec channel
+ * Faithful reproduction of Hussh's voice bug: does opening + closing a second exec channel
  * tear down the primary shell session? MINA client -> this box's real OpenSSH, exactly as the app.
  */
 public class AuxChannelRepro {
@@ -40,9 +40,9 @@ public class AuxChannelRepro {
         // Aux exec channel (the audio sink). "concurrent" mode = faithful to the app: a writer
         // thread streams continuously to a NO-READER FIFO (so writes block on a full channel
         // window), while the main thread closes the channel mid-write — exactly the app's race.
-        String sink = mode.startsWith("concurrent") ? "cat > /tmp/tf_repro.fifo" : mode.equals("stream") ? "cat > /dev/null" : "cat > /tmp/tf_repro.sink";
+        String sink = mode.startsWith("concurrent") ? "cat > /tmp/hussh_repro.fifo" : mode.equals("stream") ? "cat > /dev/null" : "cat > /tmp/hussh_repro.sink";
         if (mode.startsWith("concurrent")) {
-            new ProcessBuilder("sh", "-c", "rm -f /tmp/tf_repro.fifo; mkfifo /tmp/tf_repro.fifo").inheritIO().start().waitFor();
+            new ProcessBuilder("sh", "-c", "rm -f /tmp/hussh_repro.fifo; mkfifo /tmp/hussh_repro.fifo").inheritIO().start().waitFor();
         }
         ChannelExec exec = session.createExecChannel(sink);
         exec.open().verify(T);

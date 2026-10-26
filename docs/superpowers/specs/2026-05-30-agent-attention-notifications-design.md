@@ -35,32 +35,32 @@ PTY itself. **OSC 777** (a notification sequence) is on Claude Code's whitelist.
 ```
 Claude finishes / needs input
   → Stop / Notification hook fires
-  → hook prints JSON with terminalSequence = an OSC 777 marker carrying a TermForge token
+  → hook prints JSON with terminalSequence = an OSC 777 marker carrying a Hussh token
   → Claude Code emits that OSC to the PTY
-  → bytes travel the existing SSH shell channel to TermForge
-  → TermForge scans the inbound stream, detects the token, STRIPS the marker (so nothing renders),
+  → bytes travel the existing SSH shell channel to Hussh
+  → Hussh scans the inbound stream, detects the token, STRIPS the marker (so nothing renders),
     and posts the notification.
 ```
 
-No new connection, no screen-scraping, no polling. The marker rides the stream TermForge already owns.
+No new connection, no screen-scraping, no polling. The marker rides the stream Hussh already owns.
 
 ## Components
 
-### 1. Server — `resources/server/termforge-notify-setup.sh` (one-time, opt-in)
+### 1. Server — `resources/server/hussh-notify-setup.sh` (one-time, opt-in)
 Idempotent script that:
-- Writes a hook script `~/.claude/hooks/tf-attn.sh` that emits:
-  `{"suppressOutput": true, "terminalSequence": "\033]777;tf-attn\007"}`
+- Writes a hook script `~/.claude/hooks/hussh-attn.sh` that emits:
+  `{"suppressOutput": true, "terminalSequence": "\033]777;hussh-attn\007"}`
   (exact OSC 777 payload to be confirmed against Claude Code's `terminalSequence` sanitizer during
-  implementation — may require the `notify;` subform, e.g. `\033]777;notify;TermForge;tf-attn\007`;
-  the TermForge token `tf-attn` is what the app scans for either way.)
+  implementation — may require the `notify;` subform, e.g. `\033]777;notify;Hussh;hussh-attn\007`;
+  the Hussh token `hussh-attn` is what the app scans for either way.)
 - Merges into `~/.claude/settings.json` (via `jq`, preserving existing hooks):
-  - `Stop` hook, matcher `""` → run `tf-attn.sh`
-  - `Notification` hook, matcher `""` → run `tf-attn.sh`
-- Prints how to enable the toggle in TermForge and how to remove it.
+  - `Stop` hook, matcher `""` → run `hussh-attn.sh`
+  - `Notification` hook, matcher `""` → run `hussh-attn.sh`
+- Prints how to enable the toggle in Hussh and how to remove it.
 
 ### 2. App — `AttentionMarkerScanner` (pure logic, unit-tested)
 - `fun scan(chunk: ByteArray): Result(cleaned: ByteArray, detected: Boolean)`.
-- Detects the OSC 777 + `tf-attn` token; removes the full OSC sequence (`ESC ] … BEL`/`ESC \`) from
+- Detects the OSC 777 + `hussh-attn` token; removes the full OSC sequence (`ESC ] … BEL`/`ESC \`) from
   the bytes so the emulator never renders it.
 - Maintains a small **carry buffer** (the trailing bytes that could be the start of a split marker)
   across calls, so a marker spanning two network reads is still caught. Carry is bounded (≤ marker
@@ -73,7 +73,7 @@ Idempotent script that:
 
 ### 4. App — notification (reuses `SessionService` infra)
 - New low-importance channel "Agent attention". On `onAttention(sessionId)`:
-  - **Suppress** if TermForge is foreground AND the active terminal screen is that session.
+  - **Suppress** if Hussh is foreground AND the active terminal screen is that session.
   - **Debounce**: ignore a marker within ~2 s of the last notification for that session (Stop +
     Notification can both fire when Claude goes idle).
   - Post "Claude needs you · <nickname>"; tap → `PendingIntent` → MainActivity → navigate to
@@ -103,7 +103,7 @@ SessionService notification → tap → Terminal route]`.
   our token; debounce logic.
 - **Device:** install the hook via the setup script, run Claude Code on the remote, confirm a real
   turn-completion fires one notification that opens the session, and that nothing renders in the
-  terminal. (Server-side: confirm `tf-attn.sh` emits valid JSON and the hook is registered.)
+  terminal. (Server-side: confirm `hussh-attn.sh` emits valid JSON and the hook is registered.)
 
 ## Future surfaces (out of scope, built on this signal)
 Wear OS tile showing attention/status; reply-from-watch relayed phone→agent; inline approve/voice

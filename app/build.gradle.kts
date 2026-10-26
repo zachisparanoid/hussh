@@ -8,11 +8,11 @@ plugins {
 }
 
 android {
-    namespace = "com.termforge"
+    namespace = "com.hussh"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.termforge"
+        applicationId = "com.hussh"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

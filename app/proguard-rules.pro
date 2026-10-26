@@ -1,4 +1,4 @@
-# --- TermForge R8/ProGuard rules ---
+# --- Hussh R8/ProGuard rules ---
 
 # Apache MINA SSHD relies on reflection + ServiceLoader + optional deps not present on Android.
 -keep class org.apache.sshd.** { *; }
@@ -28,5 +28,5 @@
 -keepclasseswithmembers class * { @kotlinx.serialization.Serializable <methods>; }
 
 # Keep our serializable model classes (key bar definitions, etc.)
--keep,includedescriptorclasses class com.termforge.**$$serializer { *; }
--keepclassmembers class com.termforge.** { *** Companion; }
+-keep,includedescriptorclasses class com.hussh.**$$serializer { *; }
+-keepclassmembers class com.hussh.** { *** Companion; }

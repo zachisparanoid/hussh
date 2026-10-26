@@ -3,7 +3,7 @@ plugins {
 }
 
 // Vendored from github.com/termux/termux-app (Apache-2.0). Renders a TerminalEmulator and forwards
-// touch/key input. Used inside a Compose AndroidView by TermForge's terminal screen.
+// touch/key input. Used inside a Compose AndroidView by Hussh's terminal screen.
 android {
     namespace = "com.termux.view"
     compileSdk = 35

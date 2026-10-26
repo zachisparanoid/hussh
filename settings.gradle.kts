@@ -19,7 +19,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "TermForge"
+rootProject.name = "Hussh"
 include(":app")
 include(":terminal-emulator")
 include(":terminal-view")

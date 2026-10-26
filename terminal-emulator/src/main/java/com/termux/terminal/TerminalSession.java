@@ -76,9 +76,9 @@ public final class TerminalSession extends TerminalOutput {
     private final String[] mEnv;
     private final Integer mTranscriptRows;
 
-    /** TermForge: when true, no local subprocess is forked; I/O flows over {@link #mNetworkClient}. */
+    /** Hussh: when true, no local subprocess is forked; I/O flows over {@link #mNetworkClient}. */
     private final boolean mIsNetworkSession;
-    /** TermForge: sink for outbound bytes + resize/close notifications when in network mode. */
+    /** Hussh: sink for outbound bytes + resize/close notifications when in network mode. */
     private TerminalNetworkClient mNetworkClient;
 
 
@@ -95,7 +95,7 @@ public final class TerminalSession extends TerminalOutput {
     }
 
     /**
-     * TermForge: create a network-backed session. No subprocess is forked. Outbound terminal bytes
+     * Hussh: create a network-backed session. No subprocess is forked. Outbound terminal bytes
      * go to {@code networkClient}; inbound bytes from the remote host are fed in via
      * {@link #onNetworkInput(byte[], int, int)}.
      */
@@ -110,7 +110,7 @@ public final class TerminalSession extends TerminalOutput {
         this.mIsNetworkSession = true;
     }
 
-    /** TermForge: update the network sink (e.g. after auto-reconnect produces a fresh transport). */
+    /** Hussh: update the network sink (e.g. after auto-reconnect produces a fresh transport). */
     public void setNetworkClient(TerminalNetworkClient networkClient) {
         this.mNetworkClient = networkClient;
     }
@@ -135,7 +135,7 @@ public final class TerminalSession extends TerminalOutput {
                 JNI.setPtyWindowSize(mTerminalFileDescriptor, rows, columns, cellWidthPixels, cellHeightPixels);
             mEmulator.resize(columns, rows, cellWidthPixels, cellHeightPixels);
         }
-        // TermForge: tell the remote host about the new window size (SSH window-change / Telnet NAWS).
+        // Hussh: tell the remote host about the new window size (SSH window-change / Telnet NAWS).
         if (mIsNetworkSession && mNetworkClient != null)
             mNetworkClient.onTerminalSizeChanged(columns, rows, cellWidthPixels, cellHeightPixels);
     }
@@ -154,7 +154,7 @@ public final class TerminalSession extends TerminalOutput {
     public void initializeEmulator(int columns, int rows, int cellWidthPixels, int cellHeightPixels) {
         mEmulator = new TerminalEmulator(this, columns, rows, cellWidthPixels, cellHeightPixels, mTranscriptRows, mClient);
 
-        // TermForge: network-backed sessions have no subprocess; inbound bytes arrive via onNetworkInput().
+        // Hussh: network-backed sessions have no subprocess; inbound bytes arrive via onNetworkInput().
         if (mIsNetworkSession) {
             mShellPid = 0; // 0 == "running, network-backed" (isRunning() checks for -1).
             return;
@@ -221,7 +221,7 @@ public final class TerminalSession extends TerminalOutput {
     }
 
     /**
-     * TermForge: feed bytes received from the remote host into the emulator. Safe to call from any
+     * Hussh: feed bytes received from the remote host into the emulator. Safe to call from any
      * thread — bytes are queued and the actual emulator append happens on the main thread, exactly
      * as the upstream PTY reader path does.
      */
@@ -231,7 +231,7 @@ public final class TerminalSession extends TerminalOutput {
         mMainThreadHandler.sendEmptyMessage(MSG_NEW_INPUT);
     }
 
-    /** TermForge: append an informational banner into the terminal buffer. Call on the main thread. */
+    /** Hussh: append an informational banner into the terminal buffer. Call on the main thread. */
     public void appendSystemMessage(String text) {
         if (mEmulator == null || text == null) return;
         byte[] b = text.getBytes(StandardCharsets.UTF_8);

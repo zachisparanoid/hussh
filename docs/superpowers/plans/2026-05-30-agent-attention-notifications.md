@@ -13,31 +13,31 @@ Spec: `docs/superpowers/specs/2026-05-30-agent-attention-notifications-design.md
 ---
 
 ## File structure
-- Create `app/src/main/java/com/termforge/session/AttentionMarkerScanner.kt` — pure marker scan/strip (unit-tested).
-- Create `app/src/test/java/com/termforge/session/AttentionMarkerScannerTest.kt` — its tests.
-- Create `app/src/main/java/com/termforge/session/AttentionNotifier.kt` — notification channel + post + deep-link intent.
-- Modify `app/src/main/java/com/termforge/data/prefs/AppPreferences.kt` — `agentAttentionEnabled` flag.
-- Modify `app/src/main/java/com/termforge/session/TerminalConnection.kt` — run scanner in inbound path; `onAttention` ctor param.
-- Modify `app/src/main/java/com/termforge/session/SessionManager.kt` — `visibleSessionId`; `onConnectionAttention` (debounce + suppress); pass `onAttention`; pass enabled flag.
-- Modify `app/src/main/java/com/termforge/MainActivity.kt` — handle the deep-link intent → navigate to the terminal route.
-- Modify `app/src/main/java/com/termforge/terminal/TerminalScreen.kt` — set/clear `SessionManager.visibleSessionId` on lifecycle resume/pause.
-- Modify `app/src/main/java/com/termforge/ui/settings/SettingsScreen.kt` + `SettingsViewModel.kt` — toggle.
-- Create `resources/server/termforge-notify-setup.sh` — installs the Claude Code hook.
+- Create `app/src/main/java/com/hussh/session/AttentionMarkerScanner.kt` — pure marker scan/strip (unit-tested).
+- Create `app/src/test/java/com/hussh/session/AttentionMarkerScannerTest.kt` — its tests.
+- Create `app/src/main/java/com/hussh/session/AttentionNotifier.kt` — notification channel + post + deep-link intent.
+- Modify `app/src/main/java/com/hussh/data/prefs/AppPreferences.kt` — `agentAttentionEnabled` flag.
+- Modify `app/src/main/java/com/hussh/session/TerminalConnection.kt` — run scanner in inbound path; `onAttention` ctor param.
+- Modify `app/src/main/java/com/hussh/session/SessionManager.kt` — `visibleSessionId`; `onConnectionAttention` (debounce + suppress); pass `onAttention`; pass enabled flag.
+- Modify `app/src/main/java/com/hussh/MainActivity.kt` — handle the deep-link intent → navigate to the terminal route.
+- Modify `app/src/main/java/com/hussh/terminal/TerminalScreen.kt` — set/clear `SessionManager.visibleSessionId` on lifecycle resume/pause.
+- Modify `app/src/main/java/com/hussh/ui/settings/SettingsScreen.kt` + `SettingsViewModel.kt` — toggle.
+- Create `resources/server/hussh-notify-setup.sh` — installs the Claude Code hook.
 
-**The marker (shared contract between the hook and the scanner):** `ESC ] 777 ; tf-attn BEL` = Kotlin `"]777;tf-attn"`. If Claude Code's `terminalSequence` sanitizer rejects that exact body, switch BOTH the hook output and `AttentionMarkerScanner.MARKER` to the `notify;` subform `"]777;notify;TermForge;tf-attn"` — they must match byte-for-byte.
+**The marker (shared contract between the hook and the scanner):** `ESC ] 777 ; hussh-attn BEL` = Kotlin `"]777;hussh-attn"`. If Claude Code's `terminalSequence` sanitizer rejects that exact body, switch BOTH the hook output and `AttentionMarkerScanner.MARKER` to the `notify;` subform `"]777;notify;Hussh;hussh-attn"` — they must match byte-for-byte.
 
 ---
 
 ### Task 1: AttentionMarkerScanner (TDD)
 
 **Files:**
-- Create: `app/src/main/java/com/termforge/session/AttentionMarkerScanner.kt`
-- Test: `app/src/test/java/com/termforge/session/AttentionMarkerScannerTest.kt`
+- Create: `app/src/main/java/com/hussh/session/AttentionMarkerScanner.kt`
+- Test: `app/src/test/java/com/hussh/session/AttentionMarkerScannerTest.kt`
 
 - [ ] **Step 1: Write the failing tests**
 
 ```kotlin
-package com.termforge.session
+package com.hussh.session
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -46,7 +46,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AttentionMarkerScannerTest {
-    private val M = "]777;tf-attn".toByteArray(Charsets.US_ASCII)
+    private val M = "]777;hussh-attn".toByteArray(Charsets.US_ASCII)
     private fun bytes(s: String) = s.toByteArray(Charsets.US_ASCII)
 
     @Test fun `plain output passes through untouched and undetected`() {
@@ -88,16 +88,16 @@ class AttentionMarkerScannerTest {
 
 - [ ] **Step 2: Run the tests, verify they FAIL (unresolved AttentionMarkerScanner)**
 
-Run: `ANDROID_HOME=/home/ubuntu/Android/Sdk ./gradlew :app:testDebugUnitTest --tests "com.termforge.session.AttentionMarkerScannerTest"`
+Run: `ANDROID_HOME=/home/ubuntu/Android/Sdk ./gradlew :app:testDebugUnitTest --tests "com.hussh.session.AttentionMarkerScannerTest"`
 Expected: FAIL — compile error / `AttentionMarkerScanner` unresolved.
 
 - [ ] **Step 3: Implement the scanner**
 
 ```kotlin
-package com.termforge.session
+package com.hussh.session
 
 /**
- * Scans an inbound terminal byte stream for the TermForge attention marker (an OSC 777 sequence
+ * Scans an inbound terminal byte stream for the Hussh attention marker (an OSC 777 sequence
  * Claude Code emits via a hook's terminalSequence). Strips the marker so the emulator never renders
  * it, and reports whether one was seen. Stateful: holds back a trailing partial marker so a marker
  * split across two network reads is still caught.
@@ -141,20 +141,20 @@ class AttentionMarkerScanner {
     }
 
     companion object {
-        val MARKER: ByteArray = "]777;tf-attn".toByteArray(Charsets.US_ASCII)
+        val MARKER: ByteArray = "]777;hussh-attn".toByteArray(Charsets.US_ASCII)
     }
 }
 ```
 
 - [ ] **Step 4: Run the tests, verify they PASS**
 
-Run: `ANDROID_HOME=/home/ubuntu/Android/Sdk ./gradlew :app:testDebugUnitTest --tests "com.termforge.session.AttentionMarkerScannerTest"`
+Run: `ANDROID_HOME=/home/ubuntu/Android/Sdk ./gradlew :app:testDebugUnitTest --tests "com.hussh.session.AttentionMarkerScannerTest"`
 Expected: PASS (5 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app/src/main/java/com/termforge/session/AttentionMarkerScanner.kt app/src/test/java/com/termforge/session/AttentionMarkerScannerTest.kt
+git add app/src/main/java/com/hussh/session/AttentionMarkerScanner.kt app/src/test/java/com/hussh/session/AttentionMarkerScannerTest.kt
 git commit -m "Add AttentionMarkerScanner (strip + detect OSC 777 marker)"
 ```
 
@@ -162,7 +162,7 @@ git commit -m "Add AttentionMarkerScanner (strip + detect OSC 777 marker)"
 
 ### Task 2: Setting — `agentAttentionEnabled`
 
-**Files:** Modify `app/src/main/java/com/termforge/data/prefs/AppPreferences.kt`
+**Files:** Modify `app/src/main/java/com/hussh/data/prefs/AppPreferences.kt`
 
 - [ ] **Step 1: Add the field to `AppSettings`** (next to `glideTypingEnabled`):
 
@@ -193,7 +193,7 @@ git commit -m "Add AttentionMarkerScanner (strip + detect OSC 777 marker)"
 Run: `ANDROID_HOME=/home/ubuntu/Android/Sdk ./gradlew :app:compileDebugKotlin`
 Expected: BUILD SUCCESSFUL.
 ```bash
-git add app/src/main/java/com/termforge/data/prefs/AppPreferences.kt
+git add app/src/main/java/com/hussh/data/prefs/AppPreferences.kt
 git commit -m "Add agentAttentionEnabled preference"
 ```
 
@@ -201,12 +201,12 @@ git commit -m "Add agentAttentionEnabled preference"
 
 ### Task 3: AttentionNotifier
 
-**Files:** Create `app/src/main/java/com/termforge/session/AttentionNotifier.kt`
+**Files:** Create `app/src/main/java/com/hussh/session/AttentionNotifier.kt`
 
 - [ ] **Step 1: Implement it**
 
 ```kotlin
-package com.termforge.session
+package com.hussh.session
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -215,8 +215,8 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import com.termforge.MainActivity
-import com.termforge.R
+import com.hussh.MainActivity
+import com.hussh.R
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -257,8 +257,8 @@ class AttentionNotifier @Inject constructor(
     }
 
     companion object {
-        const val CHANNEL_ID = "termforge_agent_attention"
-        const val EXTRA_SESSION_ID = "com.termforge.extra.SESSION_ID"
+        const val CHANNEL_ID = "hussh_agent_attention"
+        const val EXTRA_SESSION_ID = "com.hussh.extra.SESSION_ID"
     }
 }
 ```
@@ -268,7 +268,7 @@ class AttentionNotifier @Inject constructor(
 Run: `ANDROID_HOME=/home/ubuntu/Android/Sdk ./gradlew :app:compileDebugKotlin`
 Expected: BUILD SUCCESSFUL.
 ```bash
-git add app/src/main/java/com/termforge/session/AttentionNotifier.kt
+git add app/src/main/java/com/hussh/session/AttentionNotifier.kt
 git commit -m "Add AttentionNotifier (channel + deep-link notification)"
 ```
 
@@ -276,7 +276,7 @@ git commit -m "Add AttentionNotifier (channel + deep-link notification)"
 
 ### Task 4: SessionManager — attention handling + visible-session tracking
 
-**Files:** Modify `app/src/main/java/com/termforge/session/SessionManager.kt`
+**Files:** Modify `app/src/main/java/com/hussh/session/SessionManager.kt`
 
 - [ ] **Step 1: Inject AttentionNotifier + AppPreferences** — add to the constructor (it already injects `appPrefs`? it injects `AppPreferences` — confirm; add `attentionNotifier`):
 
@@ -320,7 +320,7 @@ git commit -m "Add AttentionNotifier (channel + deep-link notification)"
 Run: `ANDROID_HOME=/home/ubuntu/Android/Sdk ./gradlew :app:compileDebugKotlin`
 Expected: BUILD SUCCESSFUL (after Task 5 adds the ctor params, this fully resolves — if compiling Task 4 alone errors on the new ctor args, do Task 5 first then compile).
 ```bash
-git add app/src/main/java/com/termforge/session/SessionManager.kt
+git add app/src/main/java/com/hussh/session/SessionManager.kt
 git commit -m "SessionManager: attention handling + visible-session tracking"
 ```
 
@@ -328,7 +328,7 @@ git commit -m "SessionManager: attention handling + visible-session tracking"
 
 ### Task 5: TerminalConnection — run the scanner + onAttention
 
-**Files:** Modify `app/src/main/java/com/termforge/session/TerminalConnection.kt`
+**Files:** Modify `app/src/main/java/com/hussh/session/TerminalConnection.kt`
 
 - [ ] **Step 1: Add ctor params** (after `onTerminated`):
 
@@ -364,7 +364,7 @@ git commit -m "SessionManager: attention handling + visible-session tracking"
 Run: `ANDROID_HOME=/home/ubuntu/Android/Sdk ./gradlew :app:compileDebugKotlin`
 Expected: BUILD SUCCESSFUL.
 ```bash
-git add app/src/main/java/com/termforge/session/TerminalConnection.kt app/src/main/java/com/termforge/session/SessionManager.kt
+git add app/src/main/java/com/hussh/session/TerminalConnection.kt app/src/main/java/com/hussh/session/SessionManager.kt
 git commit -m "Wire AttentionMarkerScanner into the inbound stream"
 ```
 
@@ -372,7 +372,7 @@ git commit -m "Wire AttentionMarkerScanner into the inbound stream"
 
 ### Task 6: Deep-link + visible-session lifecycle
 
-**Files:** Modify `app/src/main/java/com/termforge/MainActivity.kt`, `app/src/main/java/com/termforge/terminal/TerminalScreen.kt`
+**Files:** Modify `app/src/main/java/com/hussh/MainActivity.kt`, `app/src/main/java/com/hussh/terminal/TerminalScreen.kt`
 
 - [ ] **Step 1: MainActivity — expose the tapped session id as state and navigate.** Hold the session id from the launch/new intent and, once the NavController exists, navigate to the terminal route. Add near `onCreate`:
 
@@ -381,7 +381,7 @@ git commit -m "Wire AttentionMarkerScanner into the inbound stream"
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        intent.getStringExtra(com.termforge.session.AttentionNotifier.EXTRA_SESSION_ID)
+        intent.getStringExtra(com.hussh.session.AttentionNotifier.EXTRA_SESSION_ID)
             ?.let { pendingSessionId.value = it }
     }
 ```
@@ -391,7 +391,7 @@ In `onCreate`, seed it from the launch intent: `pendingSessionId.value = intent.
 ```kotlin
                     LaunchedEffect(pendingSessionId.value) {
                         pendingSessionId.value?.let { sid ->
-                            navController.navigate(com.termforge.nav.Routes.Terminal.build(sid))
+                            navController.navigate(com.hussh.nav.Routes.Terminal.build(sid))
                             pendingSessionId.value = null
                         }
                     }
@@ -427,7 +427,7 @@ Add to `TerminalViewModel`:
 Run: `ANDROID_HOME=/home/ubuntu/Android/Sdk ./gradlew :app:compileDebugKotlin`
 Expected: BUILD SUCCESSFUL.
 ```bash
-git add app/src/main/java/com/termforge/MainActivity.kt app/src/main/java/com/termforge/terminal/TerminalScreen.kt app/src/main/java/com/termforge/terminal/TerminalViewModel.kt
+git add app/src/main/java/com/hussh/MainActivity.kt app/src/main/java/com/hussh/terminal/TerminalScreen.kt app/src/main/java/com/hussh/terminal/TerminalViewModel.kt
 git commit -m "Deep-link attention notification to its session + track visible session"
 ```
 
@@ -435,7 +435,7 @@ git commit -m "Deep-link attention notification to its session + track visible s
 
 ### Task 7: Settings toggle
 
-**Files:** Modify `app/src/main/java/com/termforge/ui/settings/SettingsViewModel.kt`, `SettingsScreen.kt`
+**Files:** Modify `app/src/main/java/com/hussh/ui/settings/SettingsViewModel.kt`, `SettingsScreen.kt`
 
 - [ ] **Step 1: ViewModel setter** (next to `setGlideTyping`):
 
@@ -450,7 +450,7 @@ git commit -m "Deep-link attention notification to its session + track visible s
             ToggleRow("Claude attention notifications", s.agentAttentionEnabled, viewModel::setAgentAttention)
             Text(
                 "Notifies you when Claude Code on a connected host finishes or needs you. Requires " +
-                    "running resources/server/termforge-notify-setup.sh on that machine.",
+                    "running resources/server/hussh-notify-setup.sh on that machine.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 ```
@@ -460,7 +460,7 @@ git commit -m "Deep-link attention notification to its session + track visible s
 Run: `ANDROID_HOME=/home/ubuntu/Android/Sdk ./gradlew :app:compileDebugKotlin`
 Expected: BUILD SUCCESSFUL.
 ```bash
-git add app/src/main/java/com/termforge/ui/settings/SettingsViewModel.kt app/src/main/java/com/termforge/ui/settings/SettingsScreen.kt
+git add app/src/main/java/com/hussh/ui/settings/SettingsViewModel.kt app/src/main/java/com/hussh/ui/settings/SettingsScreen.kt
 git commit -m "Settings: agent attention notification toggle"
 ```
 
@@ -468,24 +468,24 @@ git commit -m "Settings: agent attention notification toggle"
 
 ### Task 8: Server hook setup script
 
-**Files:** Create `resources/server/termforge-notify-setup.sh`
+**Files:** Create `resources/server/hussh-notify-setup.sh`
 
 - [ ] **Step 1: Write the script** (idempotent; needs `jq`):
 
 ```bash
 #!/usr/bin/env bash
-# TermForge agent-attention setup. Adds a Claude Code hook that emits an OSC 777 marker when Claude
-# finishes a turn or needs you; TermForge watches the SSH stream for it and notifies your phone.
+# Hussh agent-attention setup. Adds a Claude Code hook that emits an OSC 777 marker when Claude
+# finishes a turn or needs you; Hussh watches the SSH stream for it and notifies your phone.
 set -euo pipefail
 
-HOOK="$HOME/.claude/hooks/tf-attn.sh"
+HOOK="$HOME/.claude/hooks/hussh-attn.sh"
 SETTINGS="$HOME/.claude/settings.json"
 mkdir -p "$HOME/.claude/hooks"
 
 cat > "$HOOK" <<'EOF'
 #!/usr/bin/env bash
-# Emit the TermForge attention marker to the terminal via Claude Code's terminalSequence.
-printf '%s' '{"suppressOutput": true, "terminalSequence": "]777;tf-attn"}'
+# Emit the Hussh attention marker to the terminal via Claude Code's terminalSequence.
+printf '%s' '{"suppressOutput": true, "terminalSequence": "]777;hussh-attn"}'
 EOF
 chmod +x "$HOOK"
 
@@ -498,20 +498,20 @@ jq --arg cmd "$HOOK" '
   | .hooks.Notification = [{"matcher":"","hooks":[{"type":"command","command":$cmd}]}]
 ' "$SETTINGS" > "$tmp" && mv "$tmp" "$SETTINGS"
 
-echo "Installed. Now enable 'Claude attention notifications' in TermForge Settings."
+echo "Installed. Now enable 'Claude attention notifications' in Hussh Settings."
 echo "Verify the hook emits valid JSON:  bash $HOOK ; echo"
 ```
 
 - [ ] **Step 2: Verify the script is valid bash + the hook emits valid JSON**
 
-Run: `bash -n resources/server/termforge-notify-setup.sh && echo "syntax ok"`
+Run: `bash -n resources/server/hussh-notify-setup.sh && echo "syntax ok"`
 Expected: `syntax ok`.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-chmod +x resources/server/termforge-notify-setup.sh
-git add resources/server/termforge-notify-setup.sh
+chmod +x resources/server/hussh-notify-setup.sh
+git add resources/server/hussh-notify-setup.sh
 git commit -m "Add server setup script for agent-attention hook"
 ```
 
@@ -529,9 +529,9 @@ Expected: BUILD SUCCESSFUL; APK at `app/build/outputs/apk/debug/app-debug.apk`.
 Run: `ANDROID_HOME=/home/ubuntu/Android/Sdk ./gradlew :app:testDebugUnitTest`
 Expected: all pass.
 
-- [ ] **Step 3: Confirm the exact OSC 777 form against Claude Code** — run the installed hook script and confirm Claude Code accepts the `terminalSequence` (sanity: `bash ~/.claude/hooks/tf-attn.sh` prints valid JSON). If Claude rejects the body, switch the marker in both `AttentionMarkerScanner.MARKER` and the hook to the `notify;` subform (see file-structure note) and re-run Task 1 tests.
+- [ ] **Step 3: Confirm the exact OSC 777 form against Claude Code** — run the installed hook script and confirm Claude Code accepts the `terminalSequence` (sanity: `bash ~/.claude/hooks/hussh-attn.sh` prints valid JSON). If Claude rejects the body, switch the marker in both `AttentionMarkerScanner.MARKER` and the hook to the `notify;` subform (see file-structure note) and re-run Task 1 tests.
 
-- [ ] **Step 4: Device verify** (when a device is reachable/unlocked): install; run `termforge-notify-setup.sh` on the host; enable the toggle; connect; start `claude`; let it finish a turn → confirm exactly one "Claude needs you" notification fires, tapping opens the session, and nothing renders in the terminal; confirm no notification when you're already viewing that session.
+- [ ] **Step 4: Device verify** (when a device is reachable/unlocked): install; run `hussh-notify-setup.sh` on the host; enable the toggle; connect; start `claude`; let it finish a turn → confirm exactly one "Claude needs you" notification fires, tapping opens the session, and nothing renders in the terminal; confirm no notification when you're already viewing that session.
 
 - [ ] **Step 5: Finalize**
 

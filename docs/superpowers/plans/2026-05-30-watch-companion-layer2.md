@@ -13,18 +13,18 @@
 **Architecture (two hops, reusing Layer 1):**
 ```
 PHONE (:app, Layer-1 engine)                        WATCH (:wear, new)
-  AgentInstance registry ──serialize JSON──▶ DataClient "/tf/agents" ──▶ instance list UI
-  SessionManager.routeText/approve/focus ◀── MessageClient "/tf/cmd" ◀── tap / Send / voice-text
+  AgentInstance registry ──serialize JSON──▶ DataClient "/hussh/agents" ──▶ instance list UI
+  SessionManager.routeText/approve/focus ◀── MessageClient "/hussh/cmd" ◀── tap / Send / voice-text
             (WearBridge: WearableListenerService + DataClient)
 ```
 - **No shared module:** instances are serialized to JSON and pushed as a DataItem; commands are JSON `MessageClient` messages. The watch has its own tiny DTO.
-- **Data Layer requires same applicationId + signing** on both apps → the `:wear` module uses `applicationId "com.termforge"` with the same `.debug` suffix and the default debug keystore.
+- **Data Layer requires same applicationId + signing** on both apps → the `:wear` module uses `applicationId "com.hussh"` with the same `.debug` suffix and the default debug keystore.
 
 ---
 
 ## Phase W1: Module scaffold (the riskiest infra — compile gate)
 
-**Files:** `settings.gradle.kts` (+`include(":wear")`), `gradle/libs.versions.toml` (+wear deps), `wear/build.gradle.kts`, `wear/src/main/AndroidManifest.xml`, `wear/src/main/java/com/termforge/wear/WearMainActivity.kt`, `wear/src/main/res/values/strings.xml`.
+**Files:** `settings.gradle.kts` (+`include(":wear")`), `gradle/libs.versions.toml` (+wear deps), `wear/build.gradle.kts`, `wear/src/main/AndroidManifest.xml`, `wear/src/main/java/com/hussh/wear/WearMainActivity.kt`, `wear/src/main/res/values/strings.xml`.
 
 - [ ] **Add deps to `libs.versions.toml`** under `[versions]`: `playServicesWearable = "18.2.0"`, `wearCompose = "1.4.1"`, `wearTiles = "1.4.1"`, `wearComplications = "1.2.1"`, `horologist = "0.6.17"` (optional, skip if unused). Under `[libraries]`:
   - `play-services-wearable = { group = "com.google.android.gms", name = "play-services-wearable", version.ref = "playServicesWearable" }`
@@ -33,31 +33,31 @@ PHONE (:app, Layer-1 engine)                        WATCH (:wear, new)
   - `androidx-wear-tiles = { group = "androidx.wear.tiles", name = "tiles", version.ref = "wearTiles" }`
   - `androidx-wear-tiles-material = { group = "androidx.wear.tiles", name = "tiles-material", version.ref = "wearTiles" }`
 
-- [ ] **`wear/build.gradle.kts`:** plugins `android.application`, `kotlin.android`, `kotlin.compose`, `kotlin.serialization`. `namespace = "com.termforge.wear"`, `compileSdk 35`, `minSdk 30`, `targetSdk 34`, `applicationId "com.termforge"`, debug `applicationIdSuffix ".debug"`. `buildFeatures.compose = true`. Java 17. Deps: compose BOM (platform), `androidx.activity.compose`, wear-compose-material/foundation, `play-services-wearable`, `kotlinx-serialization-json`, `kotlinx-coroutines-android`, `kotlinx-coroutines-play-services` (for `.await()` on Tasks).
+- [ ] **`wear/build.gradle.kts`:** plugins `android.application`, `kotlin.android`, `kotlin.compose`, `kotlin.serialization`. `namespace = "com.hussh.wear"`, `compileSdk 35`, `minSdk 30`, `targetSdk 34`, `applicationId "com.hussh"`, debug `applicationIdSuffix ".debug"`. `buildFeatures.compose = true`. Java 17. Deps: compose BOM (platform), `androidx.activity.compose`, wear-compose-material/foundation, `play-services-wearable`, `kotlinx-serialization-json`, `kotlinx-coroutines-android`, `kotlinx-coroutines-play-services` (for `.await()` on Tasks).
 
 - [ ] **`wear/src/main/AndroidManifest.xml`:** `<uses-feature android:name="android.hardware.type.watch"/>`, `RECORD_AUDIO` + `INTERNET` perms; `<application>` with `WearMainActivity` (exported, LAUNCHER + the `android.intent.category.LEANBACK_LAUNCHER`? no — wear uses normal LAUNCHER). Standalone meta: `<meta-data android:name="com.google.android.wearable.standalone" android:value="true"/>`.
 
-- [ ] **`WearMainActivity.kt`:** minimal Wear Compose activity showing "TermForge" placeholder (Scaffold from `androidx.wear.compose.material`). Confirms the toolchain.
+- [ ] **`WearMainActivity.kt`:** minimal Wear Compose activity showing "Hussh" placeholder (Scaffold from `androidx.wear.compose.material`). Confirms the toolchain.
 
 - [ ] **Compile gate:** `ANDROID_HOME=/home/ubuntu/Android/Sdk ./gradlew :wear:assembleDebug` → BUILD SUCCESSFUL. Commit.
 
 ## Phase W2: Phone→watch instance push + watch list
 
-- [ ] **Shared JSON shape:** phone serializes `List<AgentInstance>` → JSON (reuse a `@Serializable WireInstance` dto: key, session, reason, cwd, prompt, routable). Push via `DataClient.putDataItem` at path `/tf/agents` whenever `SessionManager.instances` changes AND the session is `watchEnabled`.
+- [ ] **Shared JSON shape:** phone serializes `List<AgentInstance>` → JSON (reuse a `@Serializable WireInstance` dto: key, session, reason, cwd, prompt, routable). Push via `DataClient.putDataItem` at path `/hussh/agents` whenever `SessionManager.instances` changes AND the session is `watchEnabled`.
 - [ ] **`WearBridge` (phone, `:app`):** a class (held by SessionManager or a small Hilt singleton) that collects `instances`, filters to watch-enabled, serializes, and `Wearable.getDataClient(context).putDataItem(...)`. Coroutines via `.await()`.
-- [ ] **Watch:** a `WearableListenerService` (or `DataClient.addListener` in the activity's VM) parses `/tf/agents` → `StateFlow<List<WireInstance>>`; the activity renders a `ScalingLazyColumn` of cards (session + reason + last prompt line). Compile (`:app` + `:wear`). Commit.
+- [ ] **Watch:** a `WearableListenerService` (or `DataClient.addListener` in the activity's VM) parses `/hussh/agents` → `StateFlow<List<WireInstance>>`; the activity renders a `ScalingLazyColumn` of cards (session + reason + last prompt line). Compile (`:app` + `:wear`). Commit.
 
 ## Phase W3: Watch → phone commands (focus/approve/deny) + per-session watch-enable
 
-- [ ] **Watch command send:** tapping a card / action → `MessageClient.sendMessage(nodeId, "/tf/cmd", json{action,instanceKey,text})` to the phone node (resolve via `Wearable.getNodeClient`).
-- [ ] **Phone `WearBridge` receive:** a `WearableListenerService` (manifest-registered, path `/tf/cmd`) → parse → `SessionManager.instanceByKey` → route `approve/deny/focus/sendText`.
+- [ ] **Watch command send:** tapping a card / action → `MessageClient.sendMessage(nodeId, "/hussh/cmd", json{action,instanceKey,text})` to the phone node (resolve via `Wearable.getNodeClient`).
+- [ ] **Phone `WearBridge` receive:** a `WearableListenerService` (manifest-registered, path `/hussh/cmd`) → parse → `SessionManager.instanceByKey` → route `approve/deny/focus/sendText`.
 - [ ] **Per-session watch-enable:** `AppPreferences.watchEnabledSessions: Set<String>` + a toggle on each Agents row (phone) next to the mute toggle ("show on watch"). `WearBridge` only pushes enabled sessions. Compile. Commit.
 
 ## Phase W4: Voice reply (STT → text, review-before-send)
 
-- [ ] **Push-and-hold mic** on the watch: a button that on press launches `RecognizerIntent` (ACTION_RECOGNIZE_SPEECH) / or `SpeechRecognizer` for hold semantics; on result, sends `/tf/cmd` `{action:"replyText", instanceKey, text}`.
+- [ ] **Push-and-hold mic** on the watch: a button that on press launches `RecognizerIntent` (ACTION_RECOGNIZE_SPEECH) / or `SpeechRecognizer` for hold semantics; on result, sends `/hussh/cmd` `{action:"replyText", instanceKey, text}`.
 - [ ] **Phone:** `replyText` → `SessionManager.routeText(inst, text)` which uses `AgentRouter.sendText` **without Enter** (verify: split `sendText` into `typeText` (no Enter) + `send` (Enter); watch voice uses `typeText`; an explicit Send/`cont` sends Enter). Add `AgentRouter.typeText` and `SessionManager.routeType`.
-- [ ] **Watch Send action:** a "Send" button → `/tf/cmd {action:"send"}` → `SessionManager.routeContinue` (Enter). Compile. Commit.
+- [ ] **Watch Send action:** a "Send" button → `/hussh/cmd {action:"send"}` → `SessionManager.routeContinue` (Enter). Compile. Commit.
 
 ## Phase W5: Transparent toggle button bar + Tile (glance)
 
